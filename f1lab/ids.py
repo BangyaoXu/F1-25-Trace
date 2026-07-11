@@ -21,6 +21,23 @@ SESSION_TYPES = {
 # Visual tyre compounds (subset that matters for F1 cars)
 TYRES = {16: "Soft", 17: "Medium", 18: "Hard", 7: "Inter", 8: "Wet"}
 
+# Constructors (F1 25 grid, 2024 retro grid, 2026 Season Pack grid)
+TEAMS = {
+    0: "Mercedes", 1: "Ferrari", 2: "Red Bull", 3: "Williams",
+    4: "Aston Martin", 5: "Alpine", 6: "Racing Bulls", 7: "Haas",
+    8: "McLaren", 9: "Sauber",
+    41: "F1 Generic", 104: "Custom Team", 129: "Konnersport",
+    142: "APXGP '24", 154: "APXGP '25", 155: "Konnersport '24",
+    185: "Mercedes '24", 186: "Ferrari '24", 187: "Red Bull '24",
+    188: "Williams '24", 189: "Aston Martin '24", 190: "Alpine '24",
+    191: "Racing Bulls '24", 192: "Haas '24", 193: "McLaren '24",
+    194: "Sauber '24",
+    476: "Mercedes '26", 477: "Ferrari '26", 478: "Red Bull '26",
+    479: "Williams '26", 480: "Aston Martin '26", 481: "Alpine '26",
+    482: "Racing Bulls '26", 483: "Haas '26", 484: "McLaren '26",
+    485: "Audi '26", 486: "Cadillac '26",
+}
+
 WEATHER = {0: "Clear", 1: "Light Cloud", 2: "Overcast", 3: "Light Rain",
            4: "Heavy Rain", 5: "Storm"}
 
@@ -35,3 +52,9 @@ def session_type_name(st):
 
 def tyre_name(visual_id):
     return TYRES.get(visual_id, "C%d" % visual_id)
+
+
+def team_name(team_id):
+    if team_id is None:
+        return None
+    return TEAMS.get(team_id, "Team %d" % team_id)

@@ -82,6 +82,31 @@ def parse_session(data):
     }
 
 
+# ---------------------------------------------------------------- participants
+
+def parse_participants(data, fmt):
+    """Return {car_idx: team_id} for the active cars.
+
+    Layout: header, numActiveCars (B), then one 60 B record per car slot
+    with teamId as uint16 at offset +5 (aiControlled B, driverId u16,
+    networkId u16). Per-record size is derived from the packet length so a
+    2026 layout change degrades to skipping, not misparsing."""
+    n = num_cars(fmt)
+    body = len(data) - HEADER.size - 1
+    if body <= 0 or body % n:
+        return {}
+    size = body // n
+    if size < 8:
+        return {}
+    n_active = data[HEADER.size]
+    out = {}
+    for idx in range(min(n, n_active)):
+        team = struct.unpack_from("<H", data, HEADER.size + 1 + idx * size + 5)[0]
+        if team < 2000:
+            out[idx] = team
+    return out
+
+
 # ---------------------------------------------------------------- car setups
 
 # 50 B per car, same layout in 2025 and 2026; packet trailer is
@@ -129,8 +154,14 @@ def parse_session_assists(data):
         struct.unpack_from("<9B", data, off)
     if steer > 1 or brake > 3 or gearbox > 3 or line > 2:
         return None  # layout mismatch guard: values out of documented range
-    return {"steer_assist": steer, "brake_assist": brake, "gearbox": gearbox,
-            "ers_assist": ers, "drs_assist": drs, "racing_line": line}
+    out = {"steer_assist": steer, "brake_assist": brake, "gearbox": gearbox,
+           "ers_assist": ers, "drs_assist": drs, "racing_line": line}
+    # equalCarPerformance: 23 bytes past the assist block (gameMode, ruleSet,
+    # timeOfDay u32, sessionLength, 4 unit fields, 3 period counters)
+    eq_off = HEADER.size + _ASSIST_OFF + 23
+    if len(data) > eq_off and data[eq_off] <= 1:
+        out["equal_perf"] = data[eq_off]
+    return out
 
 
 # ---------------------------------------------------------------- lap data

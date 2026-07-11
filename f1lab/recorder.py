@@ -63,6 +63,7 @@ class Recorder(threading.Thread):
         self.car_status = {}    # car_idx -> dict
         self.telem2 = {}        # car_idx -> dict
         self.setups = {}        # car_idx -> setup dict
+        self.teams = {}         # car_idx -> team id
         self.sess_assists = None   # player assist settings (Session packet)
         self.tt = None             # TimeTrial packet datasets
         self.stored_ghost_times = set()  # (role, lap_time_ms) dedupe
@@ -151,6 +152,8 @@ class Recorder(threading.Thread):
             self.telem2.update(packets.parse_car_telemetry2(data, self._wanted()))
         elif pid == packets.CAR_SETUPS:
             self.setups.update(packets.parse_car_setups(data, fmt, self._wanted()))
+        elif pid == packets.PARTICIPANTS:
+            self.teams.update(packets.parse_participants(data, fmt))
         elif pid == packets.TIME_TRIAL:
             self.tt = packets.parse_time_trial(data, fmt)
         elif pid == packets.SESSION:
@@ -300,6 +303,7 @@ class Recorder(threading.Thread):
                 a["abs"] = ds["abs"]
                 a["gearbox"] = ds["gearbox"]
                 a["custom_setup"] = ds["custom_setup"]
+                a["equal_perf"] = ds["equal_perf"]
         return a
 
     def _finalize(self, idx, buf, lap_time_ms):
@@ -327,14 +331,16 @@ class Recorder(threading.Thread):
         self.con.execute(
             "INSERT INTO laps (session_id, car_role, car_index, lap_num,"
             " lap_time_ms, s1_ms, s2_ms, s3_ms, valid, tyre_visual,"
-            " top_speed, n_samples, created_at, samples, setup, assists)"
-            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            " top_speed, n_samples, created_at, samples, setup, assists,"
+            " team_id)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (self.session_row_id, role, idx, buf.lap_num, lap_time_ms,
              s1, s2, s3, 0 if buf.invalid else 1,
              st.get("tyre_visual"), max(cols["spd"]) if cols["spd"] else 0,
              len(samples), _now(), db.pack_samples(cols),
              json.dumps(setup) if setup else None,
-             json.dumps(assists) if assists else None))
+             json.dumps(assists) if assists else None,
+             self.teams.get(idx)))
         self.con.commit()
         print("[f1lab] stored %s lap %d — %s%s" % (
             role, buf.lap_num, _fmt_time(lap_time_ms),

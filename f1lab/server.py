@@ -13,7 +13,7 @@ import sqlite3
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from . import db
+from . import db, ids
 
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
 
@@ -126,7 +126,7 @@ def make_handler(db_path, recorder):
                 "SELECT l.id, l.car_role, l.car_index, l.lap_num,"
                 " l.lap_time_ms, l.s1_ms, l.s2_ms, l.s3_ms, l.valid,"
                 " l.tyre_visual, l.top_speed, l.n_samples, l.created_at,"
-                " l.assists, l.setup IS NOT NULL AS has_setup,"
+                " l.assists, l.setup IS NOT NULL AS has_setup, l.team_id,"
                 " l.session_id, s.started_at, s.session_type_name,"
                 " s.packet_format"
                 " FROM laps l JOIN sessions s ON s.id = l.session_id"
@@ -136,6 +136,7 @@ def make_handler(db_path, recorder):
             for r in rows:
                 d = dict(r)
                 d["assists"] = json.loads(d["assists"]) if d["assists"] else None
+                d["team_name"] = ids.team_name(d["team_id"])
                 out.append(d)
             self._json(out)
 
@@ -158,6 +159,7 @@ def make_handler(db_path, recorder):
             meta = {k: row[k] for k in row.keys() if k != "samples"}
             for k in ("setup", "assists"):
                 meta[k] = json.loads(meta[k]) if meta.get(k) else None
+            meta["team_name"] = ids.team_name(meta.get("team_id"))
             meta["samples"] = db.unpack_samples(row["samples"])
             self._json(meta)
 

@@ -37,7 +37,8 @@ CREATE TABLE IF NOT EXISTS laps (
     created_at TEXT NOT NULL,
     samples BLOB,
     setup TEXT,                      -- JSON car setup snapshot, if broadcast
-    assists TEXT                     -- JSON assist settings, if known
+    assists TEXT,                    -- JSON assist settings, if known
+    team_id INTEGER                  -- constructor (Participants packet)
 );
 CREATE INDEX IF NOT EXISTS idx_laps_session ON laps(session_id);
 """
@@ -56,9 +57,10 @@ def connect(path):
 def _migrate(con):
     """Add columns introduced after the first release to existing DBs."""
     cols = {r[1] for r in con.execute("PRAGMA table_info(laps)")}
-    for col in ("setup", "assists"):
+    for col, typ in (("setup", "TEXT"), ("assists", "TEXT"),
+                     ("team_id", "INTEGER")):
         if col not in cols:
-            con.execute("ALTER TABLE laps ADD COLUMN %s TEXT" % col)
+            con.execute("ALTER TABLE laps ADD COLUMN %s %s" % (col, typ))
     con.commit()
 
 

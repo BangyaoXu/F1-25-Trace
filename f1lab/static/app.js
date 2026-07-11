@@ -336,9 +336,10 @@ function renderLapList() {
     const isRef = state.lapB && lap.id === state.lapB.id;
     const gap = ranked && i > 0 && lap.lap_time_ms && baseMs
       ? `<span class="gap">+${((lap.lap_time_ms - baseMs) / 1000).toFixed(3)}</span>` : "";
+    const team = lap.team_name ? lap.team_name + " · " : "";
     const sub = ranked
-      ? `${fmtSession(lap).split(" · ")[0]} · L${lap.lap_num} · ${fmtTime(lap.s1_ms)} | ${fmtTime(lap.s2_ms)} | ${fmtTime(lap.s3_ms)}`
-      : `L${lap.lap_num} · ${fmtTime(lap.s1_ms)} | ${fmtTime(lap.s2_ms)} | ${fmtTime(lap.s3_ms)} · ${lap.top_speed} km/h`;
+      ? `${team}${fmtSession(lap).split(" · ")[0]} · L${lap.lap_num} · ${fmtTime(lap.s1_ms)} | ${fmtTime(lap.s2_ms)} | ${fmtTime(lap.s3_ms)}`
+      : `${team}L${lap.lap_num} · ${fmtTime(lap.s1_ms)} | ${fmtTime(lap.s2_ms)} | ${fmtTime(lap.s3_ms)} · ${lap.top_speed} km/h`;
     row.innerHTML = `
       ${ranked ? `<span class="rank">${i + 1}</span>` : ""}
       ${roleBadge(lap.car_role)}
@@ -1130,6 +1131,8 @@ function assistLine(a) {
   if ("steer_assist" in a) parts.push("steering " + (a.steer_assist ? "on" : "off"));
   if ("racing_line" in a) parts.push("line " + (a.racing_line ? "on" : "off"));
   if ("custom_setup" in a) parts.push(a.custom_setup ? "custom setup" : "default setup");
+  if ("equal_perf" in a)
+    parts.push(a.equal_perf ? "equal car performance" : "real car performance");
   return parts.join(" · ") || "not recorded";
 }
 
@@ -1142,6 +1145,8 @@ function renderSetupCard() {
   const cols = [A, B].filter(Boolean);
   let html = `<div class="card-tag">SETUP</div><table><tr><th></th>
     <th class="cA">${B ? "YOU" : "LAP"}</th>${B ? '<th class="cB">REF</th>' : ""}</tr>`;
+  html += `<tr><td class="rowlbl">Car</td>` + cols.map((l) =>
+    `<td>${l.team_name || "—"}</td>`).join("") + "</tr>";
   html += `<tr><td class="rowlbl">Assists</td>` + cols.map((l) =>
     `<td class="asst-cell">${assistLine(l.assists)}</td>`).join("") + "</tr>";
   if (cols.some((l) => l.setup)) {

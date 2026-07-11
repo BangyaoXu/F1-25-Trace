@@ -238,6 +238,9 @@ def telem2_packet(sim_t, frame, cars):
 
 
 SETUP_CAR = struct.Struct("<BBBBffffBBBBBBBBBffffBf")
+# aiControlled, driverId u16, networkId u16, teamId u16, myTeam, raceNumber,
+# nationality, name[32], telemetryPublic, showNames, techLevel u16, platform
+PART_CAR = struct.Struct("<BHHHBBB32sBBHB")
 
 
 def session_packet(sim_t, frame, lap_len):
@@ -246,7 +249,21 @@ def session_packet(sim_t, frame, lap_len):
     # manual gearbox, corners-only racing line
     assists = bytes([0, 0, 1, 0, 0, 0, 0, 1, 0])
     body = lead + b"\x00" * (656 - len(lead)) + assists
+    body += b"\x00" * (679 - len(body)) + b"\x01"   # equalCarPerformance on
     return header(1, sim_t, frame) + body + b"\x00" * (909 - len(body))
+
+
+def participants_packet(sim_t, frame):
+    teams = {0: 476, 1: 484}   # player Mercedes '26, rival McLaren '26
+    body = bytes([len(teams)])
+    for i in range(N_CARS):
+        if i in teams:
+            body += PART_CAR.pack(0 if i == 0 else 1, 0, 0, teams[i], 0,
+                                  44 + i, 0, b"FAKE DRIVER", 1, 1, 0, 1)
+            body += bytes([1]) + b"\x00" * 12   # numColours + livery colours
+        else:
+            body += b"\x00" * (PART_CAR.size + 13)
+    return header(4, sim_t, frame) + body
 
 
 def setups_packet(sim_t, frame, active):
@@ -322,6 +339,7 @@ def main():
         sock.sendto(lap_data_packet(sim_t, frame, cars), dest)
         if sim_t >= next_session:
             sock.sendto(session_packet(sim_t, frame, lap_len), dest)
+            sock.sendto(participants_packet(sim_t, frame), dest)
             next_session = sim_t + 1.0
         if sim_t >= next_status:
             sock.sendto(status_packet(sim_t, frame, set(laps)), dest)
