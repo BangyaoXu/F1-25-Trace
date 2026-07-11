@@ -71,6 +71,10 @@ outlines** for every 2026-calendar track including Madrid
   overlaid speed / throttle / brake / steering traces, and a **DELTA** graph
   vs distance — green where you gain time on the reference, red where you
   lose it.
+- **Corner badges** on the map show every corner where you gain or lose
+  0.1 s or more vs the reference. Time is attributed braking-point to
+  braking-point, so a slow exit is charged to the corner that caused it and
+  the badges account for the whole gap.
 - **Scroll on the map to zoom into a corner** (drag to pan, double-click or
   RESET to fit): every chart re-scales to that stretch of track so you can
   study braking points in detail.
@@ -95,6 +99,14 @@ f1lab/server.py     JSON API + static viewer
 f1lab/static/       single-page viewer (no build step)
 tools/fake_game.py  synthetic game for end-to-end testing
 ```
+
+## Documentation
+
+- [docs/architecture.md](docs/architecture.md) — how the pieces fit:
+  threads, recording pipeline, storage, HTTP API, viewer subsystems.
+- [docs/design-notes.md](docs/design-notes.md) — decisions and the game
+  quirks behind them: ghost telemetry placeholders and the trust table,
+  the recorder's rule budget, per-corner time attribution, color system.
 
 ## License
 
