@@ -81,3 +81,9 @@ f1lab/server.py     JSON API + static viewer
 f1lab/static/       single-page viewer (no build step)
 tools/fake_game.py  synthetic game for end-to-end testing
 ```
+
+## License
+
+[AGPL-3.0](LICENSE). Bundled [Titillium Web](https://fonts.google.com/specimen/Titillium+Web)
+fonts are licensed under the [SIL Open Font License 1.1](f1lab/static/fonts/OFL.txt).
+Not affiliated with Formula 1 or EA/Codemasters.
