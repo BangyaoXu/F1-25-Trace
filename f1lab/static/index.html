@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>F1 Lab</title>
+<link rel="stylesheet" href="style.css">
+<script>
+if (location.protocol === "file:") {
+  document.addEventListener("DOMContentLoaded", function () {
+    document.body.innerHTML =
+      '<div style="font:16px/1.6 sans-serif;color:#dbe2ee;background:#0b0e13;' +
+      'position:fixed;inset:0;display:flex;align-items:center;justify-content:center;text-align:center;padding:40px">' +
+      "<div><h2>This page can't run as a file</h2>" +
+      "You opened index.html directly. Instead:<br><br>" +
+      "1. Run <code style='color:#22d3ee'>python3 -m f1lab</code> in the F1-udp folder<br>" +
+      "2. Open <a href='http://localhost:8020' style='color:#22d3ee'>http://localhost:8020</a> in your browser</div></div>";
+  });
+}
+</script>
+</head>
+<body>
+<header>
+  <div class="brand">F1&nbsp;<span>LAB</span></div>
+  <div id="js-stamp" class="chip idle" title="scripts did not run — check the browser console">JS ✗</div>
+  <div id="status-chip" class="chip idle">IDLE</div>
+  <div id="status-detail"></div>
+  <div class="spacer"></div>
+  <select id="session-select"></select>
+</header>
+
+<div id="layout">
+  <aside id="sidebar">
+    <div class="side-head">
+      <span>LAPS</span>
+      <span class="hint">click = view · ⭐ = reference</span>
+    </div>
+    <div id="lap-list"></div>
+  </aside>
+
+  <main id="main">
+    <div id="stage">
+      <canvas id="map"></canvas>
+
+      <div id="hud">
+        <svg id="halo" viewBox="0 0 470 196">
+          <!-- steering wheel -->
+          <g transform="translate(72,96)">
+            <g id="wheel-rot">
+              <circle cx="0" cy="0" r="47" class="wheel-rim"/>
+              <line x1="-43" y1="0" x2="43" y2="0" class="wheel-spoke"/>
+              <line x1="0" y1="6" x2="0" y2="43" class="wheel-spoke"/>
+              <circle cx="0" cy="0" r="11" class="wheel-hub"/>
+              <rect x="-6" y="-51" width="12" height="10" rx="3" class="wheel-marker"/>
+            </g>
+          </g>
+          <text id="steer-val" x="72" y="170" class="steer-val">0</text>
+          <text x="72" y="186" class="lbl">STEERING</text>
+
+          <!-- rev lights (built in initHalo) -->
+          <g id="rev-strip"></g>
+
+          <!-- throttle / brake arcs around the speed cluster -->
+          <g id="arc-ticks"></g>
+          <path id="thr-bg"  class="arc-bg" d=""/>
+          <path id="thr-arc" class="arc thr" d=""/>
+          <path id="brk-bg"  class="arc-bg" d=""/>
+          <path id="brk-arc" class="arc brk" d=""/>
+          <text x="206" y="192" class="lbl">THROTTLE</text>
+          <text x="364" y="192" class="lbl">BRAKE</text>
+
+          <!-- speed cluster -->
+          <text id="hud-speed" x="285" y="102" class="speed">0</text>
+          <text x="285" y="121" class="unit">KM/H</text>
+          <rect x="266" y="130" width="38" height="27" rx="6" class="gear-badge"/>
+          <text id="hud-gear" x="285" y="150" class="gear">N</text>
+          <rect id="drs-pill" x="222" y="164" rx="8" width="56" height="17" class="pill"/>
+          <text id="drs-txt" x="250" y="176" class="pill-txt">DRS</text>
+          <rect id="ot-pill" x="292" y="164" rx="8" width="56" height="17" class="pill"/>
+          <text id="ot-txt" x="320" y="176" class="pill-txt">OT</text>
+        </svg>
+        <div id="hud-delta" class="hud-delta"></div>
+      </div>
+
+      <div id="map-legend"></div>
+
+      <div id="map-toolbar">
+        <div class="seg" id="mode-seg">
+          <button data-mode="speed" class="on">SPEED</button>
+          <button data-mode="gap" disabled>GAP</button>
+        </div>
+        <div id="color-legend">
+          <span id="leg-lo"></span><div id="leg-bar"></div><span id="leg-hi"></span>
+        </div>
+      </div>
+
+      <div id="sector-card"></div>
+
+      <div id="empty-hint">
+        <h2>No lap selected</h2>
+        <p>Drive some laps with the game broadcasting UDP telemetry to this
+        machine, then pick a lap on the left.<br>
+        Set a second lap as <b>reference ⭐</b> to compare: ghost car, overlay
+        traces and a time-delta graph showing exactly where you gain or lose.</p>
+      </div>
+    </div>
+
+    <div id="transport">
+      <button id="btn-play" title="space">▶</button>
+      <select id="speed-select">
+        <option value="0.25">0.25×</option>
+        <option value="0.5">0.5×</option>
+        <option value="1" selected>1×</option>
+        <option value="2">2×</option>
+        <option value="4">4×</option>
+      </select>
+      <input id="scrub" type="range" min="0" max="1000" value="0">
+      <div id="time-display">0:00.000</div>
+    </div>
+
+    <div id="charts">
+      <div class="chart-row"><label>SPEED</label><canvas id="ch-speed" class="chart"></canvas></div>
+      <div class="chart-row"><label>THR / BRK</label><canvas id="ch-pedals" class="chart"></canvas></div>
+      <div class="chart-row"><label>STEER</label><canvas id="ch-steer" class="chart"></canvas></div>
+      <div class="chart-row" id="delta-row" style="display:none">
+        <label>DELTA</label><canvas id="ch-delta" class="chart"></canvas></div>
+    </div>
+
+  </main>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

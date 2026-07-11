@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "f1lab",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["-m", "f1lab"],
+      "port": 8020
+    }
+  ]
+}
