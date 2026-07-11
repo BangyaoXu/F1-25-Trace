@@ -197,7 +197,7 @@ select {
 .arc.brk { stroke: var(--red); filter: drop-shadow(0 0 4px rgba(248,113,113,.5)); }
 .arc-tick { stroke: #2e3748; stroke-width: 2; }
 .speed {
-  fill: var(--text); font-size: 41px; font-weight: 900; font-style: italic;
+  fill: var(--text); font-size: 56px; font-weight: 900; font-style: italic;
   font-family: "Titillium Web", sans-serif;
   text-anchor: middle; font-variant-numeric: tabular-nums;
 }
@@ -210,10 +210,12 @@ select {
 .pill.on-ot { fill: #3b0764; stroke: #a855f7; }
 .pill-txt { fill: #5b6576; font-size: 10px; font-weight: 800; text-anchor: middle; letter-spacing: 1px; }
 .wheel-grip { fill: #3d4452; }
-.wheel-body { fill: #2a2f3a; }
-.wheel-screen { fill: #0e1116; stroke: #414957; stroke-width: 1.5; }
-.wheel-btn-r { fill: var(--f1red); }
-.wheel-btn-b { fill: var(--accent); }
+.wheel-gripline line { stroke: #2b3039; stroke-width: 2; stroke-linecap: round; }
+.wheel-plate { fill: #282d38; stroke: #191d25; stroke-width: 1.5; }
+.wheel-screen { fill: #0c0f14; stroke: #454d5c; stroke-width: 1.5; }
+.wheel-led circle { fill: #3a4150; }
+.wheel-rotary circle { fill: #3d4452; stroke: #1d2129; stroke-width: 1.5; }
+.wheel-rotary line { stroke: #b7bfcc; stroke-width: 1.8; stroke-linecap: round; }
 .wheel-marker { fill: var(--accent); }
 .steer-val {
   fill: var(--text); font-size: 15px; font-weight: 700;
