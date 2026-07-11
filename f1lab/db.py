@@ -35,7 +35,9 @@ CREATE TABLE IF NOT EXISTS laps (
     top_speed INTEGER,
     n_samples INTEGER,
     created_at TEXT NOT NULL,
-    samples BLOB
+    samples BLOB,
+    setup TEXT,                      -- JSON car setup snapshot, if broadcast
+    assists TEXT                     -- JSON assist settings, if known
 );
 CREATE INDEX IF NOT EXISTS idx_laps_session ON laps(session_id);
 """
@@ -47,7 +49,17 @@ def connect(path):
     con.execute("PRAGMA journal_mode=WAL")
     con.execute("PRAGMA foreign_keys=ON")
     con.executescript(SCHEMA)
+    _migrate(con)
     return con
+
+
+def _migrate(con):
+    """Add columns introduced after the first release to existing DBs."""
+    cols = {r[1] for r in con.execute("PRAGMA table_info(laps)")}
+    for col in ("setup", "assists"):
+        if col not in cols:
+            con.execute("ALTER TABLE laps ADD COLUMN %s TEXT" % col)
+    con.commit()
 
 
 def pack_samples(columns):

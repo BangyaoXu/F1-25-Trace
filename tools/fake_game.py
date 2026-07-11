@@ -216,7 +216,9 @@ def status_packet(sim_t, frame, active):
         if i not in active:
             body += b"\x00" * STATUS_CAR.size
         else:
-            body += STATUS_CAR.pack(3, 2, 1, 57, 0, 10.0, 110.0, 20.0,
+            # tc=1 (medium) + abs=1 for the player, no assists for the rival
+            tc, abs_ = (1, 1) if i == 0 else (0, 0)
+            body += STATUS_CAR.pack(tc, abs_, 1, 57, 0, 10.0, 110.0, 20.0,
                                     13000, 3500, 8, 1, 0, 20, 16, 2, 0,
                                     460.0, 120.0, 4e6, 3, 0.0, 0.0, 2e6, 0.0, 0)
     return header(7, sim_t, frame) + body
@@ -235,14 +237,35 @@ def telem2_packet(sim_t, frame, cars):
     return header(16, sim_t, frame) + body
 
 
+SETUP_CAR = struct.Struct("<BBBBffffBBBBBBBBBffffBf")
+
+
 def session_packet(sim_t, frame, lap_len):
     lead = SESSION_LEAD.pack(0, 27, 19, 1, lap_len, 18, 10, 0)  # TT at Spa
-    return header(1, sim_t, frame) + lead + b"\x00" * 900
+    # steering..dynamicRacingLineType live at offset 656 after the header:
+    # manual gearbox, corners-only racing line
+    assists = bytes([0, 0, 1, 0, 0, 0, 0, 1, 0])
+    body = lead + b"\x00" * (656 - len(lead)) + assists
+    return header(1, sim_t, frame) + body + b"\x00" * (909 - len(body))
+
+
+def setups_packet(sim_t, frame, active):
+    setups = {
+        0: SETUP_CAR.pack(31, 24, 60, 55, -3.0, -1.5, 0.05, 0.2, 40, 12, 10,
+                          9, 34, 55, 95, 57, 65, 22.5, 22.5, 23.5, 23.5,
+                          0, 12.5),
+        1: SETUP_CAR.pack(28, 20, 75, 60, -2.8, -1.2, 0.03, 0.15, 42, 14, 12,
+                          10, 32, 52, 100, 56, 70, 22.0, 22.0, 23.0, 23.0,
+                          0, 8.0),
+    }
+    body = b"".join(setups[i] if i in active and i in setups
+                    else b"\x00" * SETUP_CAR.size for i in range(N_CARS))
+    return header(5, sim_t, frame) + body + struct.pack("<f", 0.0)
 
 
 def tt_packet(sim_t, frame):
     z = TT_SET.pack(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
-    rival = TT_SET.pack(1, 2, 109189, 32640, 46317, 30232, 0, 0, 0, 1, 1, 1)
+    rival = TT_SET.pack(1, 2, 109189, 32640, 46317, 30232, 0, 1, 0, 1, 1, 1)
     return header(14, sim_t, frame) + z + z + rival
 
 
@@ -302,6 +325,7 @@ def main():
             next_session = sim_t + 1.0
         if sim_t >= next_status:
             sock.sendto(status_packet(sim_t, frame, set(laps)), dest)
+            sock.sendto(setups_packet(sim_t, frame, set(laps)), dest)
             next_status = sim_t + 0.2
         if sim_t >= next_tt:
             sock.sendto(tt_packet(sim_t, frame), dest)

@@ -11,6 +11,7 @@ deduped by (role, lap_time).
 """
 
 import datetime
+import json
 import socket
 import threading
 import time
@@ -61,6 +62,9 @@ class Recorder(threading.Thread):
         self.telem = {}         # car_idx -> dict
         self.car_status = {}    # car_idx -> dict
         self.telem2 = {}        # car_idx -> dict
+        self.setups = {}        # car_idx -> setup dict
+        self.sess_assists = None   # player assist settings (Session packet)
+        self.tt = None             # TimeTrial packet datasets
         self.stored_ghost_times = set()  # (role, lap_time_ms) dedupe
 
     def _set_status(self, **kw):
@@ -145,7 +149,12 @@ class Recorder(threading.Thread):
             self.car_status.update(packets.parse_car_status(data, fmt, self._wanted()))
         elif pid == packets.CAR_TELEMETRY2 and fmt >= 2026:
             self.telem2.update(packets.parse_car_telemetry2(data, self._wanted()))
+        elif pid == packets.CAR_SETUPS:
+            self.setups.update(packets.parse_car_setups(data, fmt, self._wanted()))
+        elif pid == packets.TIME_TRIAL:
+            self.tt = packets.parse_time_trial(data, fmt)
         elif pid == packets.SESSION:
+            self.sess_assists = packets.parse_session_assists(data)
             self._on_session(data, h)
 
     def _wanted(self):
@@ -274,6 +283,25 @@ class Recorder(threading.Thread):
             return "rival"
         return "car%d" % idx
 
+    def _assists_for(self, idx, role, st):
+        """Assist settings for a finishing lap, best source per role:
+        per-car TC/ABS from CarStatus; the player adds the Session-packet
+        settings; ghosts add the TimeTrial-packet dataset."""
+        a = {}
+        if "tc" in st:
+            a["tc"] = st["tc"]
+            a["abs"] = st["abs"]
+        if role == "player" and self.sess_assists:
+            a.update(self.sess_assists)
+        elif self.tt:
+            ds = self.tt.get("rival" if role == "rival" else "personal_best")
+            if ds and ds.get("car_idx") == idx:
+                a["tc"] = ds["tc"]
+                a["abs"] = ds["abs"]
+                a["gearbox"] = ds["gearbox"]
+                a["custom_setup"] = ds["custom_setup"]
+        return a
+
     def _finalize(self, idx, buf, lap_time_ms):
         samples = buf.samples
         if lap_time_ms <= 0 or len(samples) < 50 or self.session_row_id is None:
@@ -294,15 +322,19 @@ class Recorder(threading.Thread):
         cols = {name: [s[i] for s in samples]
                 for i, name in enumerate(self.COLUMNS)}
         st = self.car_status.get(idx) or {}
+        assists = self._assists_for(idx, role, st)
+        setup = self.setups.get(idx)
         self.con.execute(
             "INSERT INTO laps (session_id, car_role, car_index, lap_num,"
             " lap_time_ms, s1_ms, s2_ms, s3_ms, valid, tyre_visual,"
-            " top_speed, n_samples, created_at, samples)"
-            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            " top_speed, n_samples, created_at, samples, setup, assists)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (self.session_row_id, role, idx, buf.lap_num, lap_time_ms,
              s1, s2, s3, 0 if buf.invalid else 1,
              st.get("tyre_visual"), max(cols["spd"]) if cols["spd"] else 0,
-             len(samples), _now(), db.pack_samples(cols)))
+             len(samples), _now(), db.pack_samples(cols),
+             json.dumps(setup) if setup else None,
+             json.dumps(assists) if assists else None))
         self.con.commit()
         print("[f1lab] stored %s lap %d — %s%s" % (
             role, buf.lap_num, _fmt_time(lap_time_ms),

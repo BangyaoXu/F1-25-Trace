@@ -60,7 +60,11 @@ outlines** for every 2026-calendar track including Madrid
 ## Viewer
 
 - Pick a **track** in the header dropdown: every lap you ever recorded on it,
-  from all sessions, in one list (grouped by session).
+  from all sessions, in one list (grouped by session). Sort **RECENT** or
+  **FASTEST** (ranked, with gaps), filter YOU / GHOSTS, hide invalid laps.
+- **SETUP** shows the viewed lap's car setup and assist settings (TC, ABS,
+  gearbox, racing line…) — side by side with the reference lap's. Assist
+  badges (TC1, ABS…) appear directly in the lap list.
 - Click a lap to replay it: dot on the track map + instrument cluster
   (speed, gear, throttle/brake arcs, rev lights, steering wheel, DRS/OT).
 - Mark any other lap as **REF** — from any session, any day: ghost dot,

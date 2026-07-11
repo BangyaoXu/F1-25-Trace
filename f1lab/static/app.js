@@ -16,6 +16,10 @@ const state = {
   mode: "speed",     // racing-line color mode: speed | gap
   mapZoom: null,     // {k, wx, wz}: zoom factor + world-space view centre
   viewD: null,       // [d0, d1] focused distance range (map zoom -> charts)
+  sort: "recent",    // lap list ordering: recent | fastest
+  roleFilter: "all", // all | player | ghost
+  hideInvalid: false,
+  setupOpen: false,  // setup/assists panel visible
 };
 
 /* ---------------------------------------------------------------- color */
@@ -274,6 +278,31 @@ function roleBadge(role) {
   return `<span class="badge ${role}">${label}</span>`;
 }
 
+/* Short badges for assist settings: only what differs from "no assists". */
+function assistBadges(a) {
+  if (!a) return "";
+  const tags = [];
+  if (a.tc) tags.push("TC" + a.tc);                 // 1 medium, 2 full
+  if (a.abs) tags.push("ABS");
+  if (a.gearbox >= 3) tags.push("AUTO");
+  if (a.racing_line) tags.push("LINE");
+  if (a.brake_assist) tags.push("BRK-A");
+  if (a.steer_assist) tags.push("STR-A");
+  return tags.map((t) => `<span class="asst">${t}</span>`).join("");
+}
+
+function visibleLaps() {
+  let laps = state.laps.slice();
+  if (state.roleFilter === "player")
+    laps = laps.filter((l) => l.car_role === "player");
+  else if (state.roleFilter === "ghost")
+    laps = laps.filter((l) => l.car_role !== "player");
+  if (state.hideInvalid) laps = laps.filter((l) => l.valid);
+  if (state.sort === "fastest")
+    laps.sort((a, b) => (a.lap_time_ms || 1e12) - (b.lap_time_ms || 1e12));
+  return laps;
+}
+
 function renderLapList() {
   const box = $("lap-list");
   box.innerHTML = "";
@@ -281,12 +310,19 @@ function renderLapList() {
     box.innerHTML = '<div class="empty-list">No complete laps on this track yet — finish a full lap and it appears here automatically.</div>';
     return;
   }
+  const laps = visibleLaps();
+  if (!laps.length) {
+    box.innerHTML = '<div class="empty-list">All laps are hidden by the current filters.</div>';
+    return;
+  }
+  const ranked = state.sort === "fastest";
+  const baseMs = ranked ? laps[0].lap_time_ms : null;
   let lastSession = null;
   const bestId = state.laps.reduce((b, l) =>
     l.car_role === "player" && l.valid &&
     (!b || l.lap_time_ms < b.lap_time_ms) ? l : b, null)?.id;
-  for (const lap of state.laps) {
-    if (lap.session_id !== lastSession) {
+  laps.forEach((lap, i) => {
+    if (!ranked && lap.session_id !== lastSession) {
       lastSession = lap.session_id;
       const head = document.createElement("div");
       head.className = "sess-head";
@@ -298,13 +334,20 @@ function renderLapList() {
     if (state.lapA && lap.id === state.lapA.id) row.classList.add("sel");
     if (state.lapB && lap.id === state.lapB.id) row.classList.add("ref-sel");
     const isRef = state.lapB && lap.id === state.lapB.id;
+    const gap = ranked && i > 0 && lap.lap_time_ms && baseMs
+      ? `<span class="gap">+${((lap.lap_time_ms - baseMs) / 1000).toFixed(3)}</span>` : "";
+    const sub = ranked
+      ? `${fmtSession(lap).split(" · ")[0]} · L${lap.lap_num} · ${fmtTime(lap.s1_ms)} | ${fmtTime(lap.s2_ms)} | ${fmtTime(lap.s3_ms)}`
+      : `L${lap.lap_num} · ${fmtTime(lap.s1_ms)} | ${fmtTime(lap.s2_ms)} | ${fmtTime(lap.s3_ms)} · ${lap.top_speed} km/h`;
     row.innerHTML = `
+      ${ranked ? `<span class="rank">${i + 1}</span>` : ""}
       ${roleBadge(lap.car_role)}
       <div class="lap-main">
-        <div class="lap-time">${fmtTime(lap.lap_time_ms, 1)}
+        <div class="lap-time">${fmtTime(lap.lap_time_ms, 1)} ${gap}
           ${lap.id === bestId ? '<span class="pb">BEST</span>' : ""}
-          ${lap.valid ? "" : '<span class="inv">INV</span>'}</div>
-        <div class="lap-sub">L${lap.lap_num} · ${fmtTime(lap.s1_ms)} | ${fmtTime(lap.s2_ms)} | ${fmtTime(lap.s3_ms)} · ${lap.top_speed} km/h</div>
+          ${lap.valid ? "" : '<span class="inv">INV</span>'}
+          ${assistBadges(lap.assists)}</div>
+        <div class="lap-sub">${sub}</div>
       </div>
       <button class="refbtn ${isRef ? "on" : ""}"
         title="${isRef ? "stop comparing against this lap" : "compare the viewed lap against this one"}">REF</button>
@@ -323,7 +366,7 @@ function renderLapList() {
       rebuildScene();
     });
     box.appendChild(row);
-  }
+  });
 }
 
 async function viewLap(id) {
@@ -989,6 +1032,7 @@ function rebuildScene() {
   updateScrubTint();
   state.viewD = computeViewD();   // zoom carries over between laps
   updateZoomChip();
+  renderSetupCard();
   for (const cfg of charts) buildChart(cfg);
   buildDeltaChart();
   drawFrame();
@@ -1047,6 +1091,71 @@ function updateSectorCard() {
     html += `<td class="laptime ${dl <= 0 ? "neg" : "pos"}">${dl >= 0 ? "+" : "−"}${Math.abs(dl).toFixed(3)}</td></tr>`;
   }
   $("sector-card").innerHTML = html + "</table>";
+}
+
+/* ------------------------------------------------- setup & assists panel */
+
+const SETUP_ROWS = [
+  ["Aerodynamics", null],
+  ["Front / rear wing", (s) => s.front_wing + " / " + s.rear_wing],
+  ["Transmission", null],
+  ["Diff on / off throttle", (s) => s.on_throttle + " / " + s.off_throttle],
+  ["Engine braking", (s) => s.engine_braking],
+  ["Suspension geometry", null],
+  ["Camber f / r", (s) => s.front_camber + " / " + s.rear_camber],
+  ["Toe f / r", (s) => s.front_toe + " / " + s.rear_toe],
+  ["Suspension", null],
+  ["Springs f / r", (s) => s.front_susp + " / " + s.rear_susp],
+  ["Anti-roll bar f / r", (s) => s.front_arb + " / " + s.rear_arb],
+  ["Ride height f / r", (s) => s.front_height + " / " + s.rear_height],
+  ["Brakes", null],
+  ["Pressure / bias", (s) => s.brake_pressure + "% / " + s.brake_bias + "%"],
+  ["Tyre pressure", null],
+  ["Front l / r", (s) => s.tp_fl + " / " + s.tp_fr],
+  ["Rear l / r", (s) => s.tp_rl + " / " + s.tp_rr],
+  ["Fuel", null],
+  ["Load", (s) => s.fuel_load + " kg"],
+];
+
+function assistLine(a) {
+  if (!a || !Object.keys(a).length) return "not recorded";
+  const tc = { 0: "off", 1: "medium", 2: "full" };
+  const gb = { 1: "manual", 2: "manual+hint", 3: "auto" };
+  const br = { 0: "off", 1: "low", 2: "medium", 3: "high" };
+  const parts = [];
+  if ("tc" in a) parts.push("TC " + (tc[a.tc] ?? a.tc));
+  if ("abs" in a) parts.push("ABS " + (a.abs ? "on" : "off"));
+  if ("gearbox" in a) parts.push("gears " + (gb[a.gearbox] ?? a.gearbox));
+  if ("brake_assist" in a) parts.push("braking " + (br[a.brake_assist] ?? a.brake_assist));
+  if ("steer_assist" in a) parts.push("steering " + (a.steer_assist ? "on" : "off"));
+  if ("racing_line" in a) parts.push("line " + (a.racing_line ? "on" : "off"));
+  if ("custom_setup" in a) parts.push(a.custom_setup ? "custom setup" : "default setup");
+  return parts.join(" · ") || "not recorded";
+}
+
+function renderSetupCard() {
+  const card = $("setup-card");
+  $("setup-btn").classList.toggle("on", state.setupOpen);
+  if (!state.setupOpen || !state.lapA) { card.style.display = "none"; return; }
+  card.style.display = "";
+  const A = state.lapA, B = state.lapB;
+  const cols = [A, B].filter(Boolean);
+  let html = `<div class="card-tag">SETUP</div><table><tr><th></th>
+    <th class="cA">${B ? "YOU" : "LAP"}</th>${B ? '<th class="cB">REF</th>' : ""}</tr>`;
+  html += `<tr><td class="rowlbl">Assists</td>` + cols.map((l) =>
+    `<td class="asst-cell">${assistLine(l.assists)}</td>`).join("") + "</tr>";
+  if (cols.some((l) => l.setup)) {
+    for (const [label, fn] of SETUP_ROWS) {
+      if (!fn) { html += `<tr><td class="grp" colspan="${1 + cols.length}">${label}</td></tr>`; continue; }
+      html += `<tr><td class="rowlbl">${label}</td>` + cols.map((l) =>
+        `<td>${l.setup ? fn(l.setup) : "—"}</td>`).join("") + "</tr>";
+    }
+  } else {
+    html += `<tr><td class="grp" colspan="${1 + cols.length}">no setup broadcast for
+      ${cols.length > 1 ? "these laps" : "this lap"} (recorded before setup
+      capture, or the game hid it)</td></tr>`;
+  }
+  card.innerHTML = html + "</table>";
 }
 
 function updateScrubTint() {
@@ -1137,6 +1246,32 @@ $("mode-seg").addEventListener("click", (e) => {
   updateToolbar();
   drawFrame();
 });
+$("setup-btn").addEventListener("click", () => {
+  if (!state.lapA) return;
+  state.setupOpen = !state.setupOpen;
+  renderSetupCard();
+});
+$("sort-seg").addEventListener("click", (e) => {
+  const b = e.target.closest("button");
+  if (!b || b.dataset.sort === state.sort) return;
+  state.sort = b.dataset.sort;
+  for (const x of document.querySelectorAll("#sort-seg button"))
+    x.classList.toggle("on", x === b);
+  renderLapList();
+});
+$("role-seg").addEventListener("click", (e) => {
+  const b = e.target.closest("button");
+  if (!b || b.dataset.role === state.roleFilter) return;
+  state.roleFilter = b.dataset.role;
+  for (const x of document.querySelectorAll("#role-seg button"))
+    x.classList.toggle("on", x === b);
+  renderLapList();
+});
+$("inv-toggle").addEventListener("click", () => {
+  state.hideInvalid = !state.hideInvalid;
+  $("inv-toggle").classList.toggle("on", state.hideInvalid);
+  renderLapList();
+});
 window.addEventListener("keydown", (e) => {
   if (e.target.tagName === "SELECT" || e.target.tagName === "INPUT") return;
   if (e.code === "Space") { e.preventDefault(); togglePlay(); }
@@ -1167,33 +1302,7 @@ window.addEventListener("unhandledrejection", (e) => showToast(String(e.reason))
 
 /* ---------------------------------------------------------------- boot */
 
-/* Input probe: proves whether mouse/keyboard events reach the page at all. */
-{
-  const probe = document.createElement("div");
-  probe.style.cssText = "position:fixed;bottom:8px;right:8px;z-index:100;" +
-    "background:#1d2230;color:#7d8798;font:11px ui-monospace,monospace;" +
-    "padding:4px 9px;border-radius:6px;pointer-events:none";
-  probe.textContent = "input probe: no clicks/keys received yet";
-  document.body.appendChild(probe);
-  let n = 0;
-  for (const ev of ["pointerdown", "click", "keydown"]) {
-    document.addEventListener(ev, (e) => {
-      n++;
-      const t = e.target;
-      probe.textContent = "input #" + n + ": " + ev + " on " +
-        (t.id || (typeof t.className === "string" && t.className.split(" ")[0]) || t.tagName);
-      probe.style.color = "#34d399";
-    }, true);
-  }
-}
-
 initHalo();
 requestAnimationFrame(loop);
 loadTracks(false).catch((e) => showToast("could not load tracks: " + e.message));
 pollStatus();
-{
-  const st = $("js-stamp");
-  st.textContent = "JS ✓";
-  st.title = "scripts loaded and running";
-  st.style.color = "#34d399";
-}

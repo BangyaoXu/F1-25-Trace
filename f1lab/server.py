@@ -126,12 +126,18 @@ def make_handler(db_path, recorder):
                 "SELECT l.id, l.car_role, l.car_index, l.lap_num,"
                 " l.lap_time_ms, l.s1_ms, l.s2_ms, l.s3_ms, l.valid,"
                 " l.tyre_visual, l.top_speed, l.n_samples, l.created_at,"
+                " l.assists, l.setup IS NOT NULL AS has_setup,"
                 " l.session_id, s.started_at, s.session_type_name,"
                 " s.packet_format"
                 " FROM laps l JOIN sessions s ON s.id = l.session_id"
                 " WHERE s.track_id=?"
                 " ORDER BY s.id DESC, l.id", (track_id,)).fetchall()
-            self._json([dict(r) for r in rows])
+            out = []
+            for r in rows:
+                d = dict(r)
+                d["assists"] = json.loads(d["assists"]) if d["assists"] else None
+                out.append(d)
+            self._json(out)
 
         def session_laps(self, sid):
             rows = get_con().execute(
@@ -150,6 +156,8 @@ def make_handler(db_path, recorder):
             if row is None:
                 return self._json({"error": "not found"}, 404)
             meta = {k: row[k] for k in row.keys() if k != "samples"}
+            for k in ("setup", "assists"):
+                meta[k] = json.loads(meta[k]) if meta.get(k) else None
             meta["samples"] = db.unpack_samples(row["samples"])
             self._json(meta)
 

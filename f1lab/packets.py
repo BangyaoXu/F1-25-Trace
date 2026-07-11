@@ -82,6 +82,57 @@ def parse_session(data):
     }
 
 
+# ---------------------------------------------------------------- car setups
+
+# 50 B per car, same layout in 2025 and 2026; packet trailer is
+# nextFrontWingValue (float), which we don't need
+_SETUP_CAR = struct.Struct("<BBBBffffBBBBBBBBBffffBf")
+
+_SETUP_FIELDS = (
+    "front_wing", "rear_wing", "on_throttle", "off_throttle",
+    "front_camber", "rear_camber", "front_toe", "rear_toe",
+    "front_susp", "rear_susp", "front_arb", "rear_arb",
+    "front_height", "rear_height", "brake_pressure", "brake_bias",
+    "engine_braking", "tp_rl", "tp_rr", "tp_fl", "tp_fr",
+    "ballast", "fuel_load")
+
+
+def parse_car_setups(data, fmt, wanted):
+    """Return {car_idx: setup dict}. All-zero setups (hidden car) -> omitted."""
+    out = {}
+    for idx in wanted:
+        off = HEADER.size + idx * _SETUP_CAR.size
+        if off + _SETUP_CAR.size > len(data):
+            continue
+        v = _SETUP_CAR.unpack_from(data, off)
+        if not any(v):
+            continue
+        out[idx] = {k: (round(x, 2) if isinstance(x, float) else x)
+                    for k, x in zip(_SETUP_FIELDS, v)}
+    return out
+
+
+# ------------------------------------------------- session assists (player)
+
+# steeringAssist..dynamicRacingLineType sit at a fixed offset after the
+# header (lead fields + marshal zones + weather forecast + ids), same
+# arithmetic as the EA F1 25 spec (packet total 926 B)
+_ASSIST_OFF = 656
+
+
+def parse_session_assists(data):
+    """Assist settings of the lead (player) from the Session packet, or None."""
+    off = HEADER.size + _ASSIST_OFF
+    if len(data) < off + 9:
+        return None
+    steer, brake, gearbox, _pit, _pit_rel, ers, drs, line, _lt = \
+        struct.unpack_from("<9B", data, off)
+    if steer > 1 or brake > 3 or gearbox > 3 or line > 2:
+        return None  # layout mismatch guard: values out of documented range
+    return {"steer_assist": steer, "brake_assist": brake, "gearbox": gearbox,
+            "ers_assist": ers, "drs_assist": drs, "racing_line": line}
+
+
 # ---------------------------------------------------------------- lap data
 
 _LAP_CAR = struct.Struct("<IIHBHBHBHBfffBBBBBBBBBBBBBBBHHBfB")  # 57 B
@@ -157,6 +208,7 @@ def parse_car_status(data, fmt, wanted):
             continue
         v = st.unpack_from(data, off)
         out[idx] = {
+            "tc": v[0], "abs": v[1],
             "fuel": v[5], "tyre_actual": v[13], "tyre_visual": v[14],
             "ers_store": v[19], "ers_mode": v[20],
         }
@@ -193,7 +245,9 @@ def parse_time_trial(data, fmt):
         v = st.unpack_from(data, HEADER.size + i * st.size)
         out[name] = {
             "car_idx": v[0], "team": v[1], "lap_ms": v[2],
-            "s1_ms": v[3], "s2_ms": v[4], "s3_ms": v[5], "valid": v[11],
+            "s1_ms": v[3], "s2_ms": v[4], "s3_ms": v[5],
+            "tc": v[6], "gearbox": v[7], "abs": v[8],
+            "equal_perf": v[9], "custom_setup": v[10], "valid": v[11],
         }
     return out
 

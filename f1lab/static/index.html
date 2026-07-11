@@ -23,7 +23,6 @@ if (location.protocol === "file:") {
 <body>
 <header>
   <div class="brand"><b>F1</b><span>LAB</span></div>
-  <div id="js-stamp" class="chip idle" title="scripts did not run — check the browser console">JS ✗</div>
   <div id="status-chip" class="chip idle">IDLE</div>
   <div id="ghost-chip" class="chip idle" style="display:none"
        title="whether the game is broadcasting ghost-car telemetry (Time Trial: load a rival and keep the ghost car enabled)">GHOST</div>
@@ -37,6 +36,18 @@ if (location.protocol === "file:") {
     <div class="side-head">
       <span>LAPS</span>
       <span class="hint">click = view · REF = compare against</span>
+    </div>
+    <div id="lap-controls">
+      <div class="seg small" id="sort-seg" title="lap ordering">
+        <button data-sort="recent" class="on">RECENT</button>
+        <button data-sort="fastest">FASTEST</button>
+      </div>
+      <div class="seg small" id="role-seg" title="whose laps to show">
+        <button data-role="all" class="on">ALL</button>
+        <button data-role="player">YOU</button>
+        <button data-role="ghost">GHOSTS</button>
+      </div>
+      <button id="inv-toggle" class="toggle" title="hide laps the game flagged invalid (corner cuts etc.)">HIDE INV</button>
     </div>
     <div id="lap-list"></div>
   </aside>
@@ -138,6 +149,9 @@ if (location.protocol === "file:") {
           <button data-mode="speed" class="on">SPEED</button>
           <button data-mode="gap" disabled>GAP</button>
         </div>
+        <div class="seg" id="setup-seg">
+          <button id="setup-btn" title="car setup + assists of the viewed lap">SETUP</button>
+        </div>
         <div id="color-legend">
           <span id="leg-title"></span>
           <span id="leg-lo"></span><div id="leg-bar"></div><span id="leg-hi"></span>
@@ -149,6 +163,7 @@ if (location.protocol === "file:") {
       </div>
 
       <div id="sector-card"></div>
+      <div id="setup-card" style="display:none"></div>
 
       <div id="empty-hint">
         <h2>No lap selected</h2>
