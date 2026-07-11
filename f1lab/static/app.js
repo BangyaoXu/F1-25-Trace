@@ -547,7 +547,7 @@ map.addEventListener("click", (e) => {
 
 /* ---------------------------------------------------------------- halo hud */
 
-const HALO = { cx: 285, cy: 105, r: 78 };
+const HALO = { cx: 285, cy: 105, r: 84 };
 const THR = { from: 230, to: 130 };   // left side, fills bottom -> top
 const BRK = { from: -50, to: 50 };    // right side, fills bottom -> top
 const N_REV = 15;

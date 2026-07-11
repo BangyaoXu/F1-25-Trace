@@ -197,7 +197,7 @@ select {
 .arc.brk { stroke: var(--red); filter: drop-shadow(0 0 4px rgba(248,113,113,.5)); }
 .arc-tick { stroke: #2e3748; stroke-width: 2; }
 .speed {
-  fill: var(--text); font-size: 46px; font-weight: 900; font-style: italic;
+  fill: var(--text); font-size: 41px; font-weight: 900; font-style: italic;
   font-family: "Titillium Web", sans-serif;
   text-anchor: middle; font-variant-numeric: tabular-nums;
 }
