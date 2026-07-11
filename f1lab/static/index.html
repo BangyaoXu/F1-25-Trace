@@ -44,20 +44,21 @@ if (location.protocol === "file:") {
       <canvas id="map"></canvas>
 
       <div id="hud">
+        <div class="card-tag">TELEMETRY</div>
         <svg id="halo" viewBox="0 0 470 196">
           <!-- steering wheel -->
           <g transform="translate(72,96)">
             <g id="wheel-rot">
-              <!-- grips -->
-              <rect x="-62" y="-26" width="19" height="60" rx="9" class="wheel-grip"/>
-              <rect x="43" y="-26" width="19" height="60" rx="9" class="wheel-grip"/>
+              <!-- grips: curved ergonomic handles -->
+              <path class="wheel-grip" d="M -48 -22 Q -58 4 -46 30"/>
+              <path class="wheel-grip" d="M 48 -22 Q 58 4 46 30"/>
               <g class="wheel-gripline">
-                <line x1="-56" y1="-10" x2="-49" y2="-10"/>
-                <line x1="-56" y1="0" x2="-49" y2="0"/>
-                <line x1="-56" y1="10" x2="-49" y2="10"/>
-                <line x1="49" y1="-10" x2="56" y2="-10"/>
-                <line x1="49" y1="0" x2="56" y2="0"/>
-                <line x1="49" y1="10" x2="56" y2="10"/>
+                <line x1="-56" y1="-4" x2="-49" y2="-4"/>
+                <line x1="-56.5" y1="4" x2="-49.5" y2="4"/>
+                <line x1="-55.5" y1="12.5" x2="-48.5" y2="12.5"/>
+                <line x1="49" y1="-4" x2="56" y2="-4"/>
+                <line x1="49.5" y1="4" x2="56.5" y2="4"/>
+                <line x1="48.5" y1="12.5" x2="55.5" y2="12.5"/>
               </g>
               <!-- faceplate -->
               <path class="wheel-plate"

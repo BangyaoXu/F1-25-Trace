@@ -18,6 +18,8 @@ html, body { height: 100%; }
 body {
   background: var(--bg); color: var(--text);
   font: 14px/1.45 "Titillium Web", -apple-system, "Segoe UI", Roboto, sans-serif;
+  /* Titillium has no 900-italic face; never synthesize (it clips glyphs) */
+  font-synthesis: none;
   display: flex; flex-direction: column; overflow: hidden;
 }
 
@@ -28,11 +30,11 @@ header {
   background: linear-gradient(180deg, #16171c, #101114);
 }
 .brand {
-  font-weight: 900; font-style: italic; font-size: 19px;
+  font-weight: 700; font-style: italic; font-size: 19px;
   letter-spacing: .5px; display: flex; align-items: center; gap: 6px;
 }
 .brand b {
-  background: var(--f1red); color: #fff; font-weight: 900;
+  background: var(--f1red); color: #fff; font-weight: 700;
   padding: 0 7px 1px 6px; border-radius: 5px;
   transform: skewX(-8deg); display: inline-block;
 }
@@ -129,7 +131,7 @@ select {
 }
 .seg button {
   background: none; border: none; color: var(--dim); cursor: pointer;
-  font-family: inherit; font-size: 10px; font-weight: 900; font-style: italic;
+  font-family: inherit; font-size: 10px; font-weight: 700; font-style: italic;
   letter-spacing: 1.5px; padding: 6px 14px;
 }
 .seg button.on { background: var(--f1red); color: #fff; }
@@ -141,7 +143,7 @@ select {
   font-size: 10px; color: var(--dim); font-variant-numeric: tabular-nums;
 }
 #leg-title {
-  font-size: 9px; font-weight: 900; font-style: italic; letter-spacing: 1.5px;
+  font-size: 9px; font-weight: 700; font-style: italic; letter-spacing: 1.5px;
   color: var(--text); border-left: 3px solid var(--f1red);
   padding-left: 6px; margin-right: 3px;
 }
@@ -149,6 +151,15 @@ select {
 #leg-bar {
   width: 84px; height: 7px; border-radius: 4px;
   outline: 1px solid rgba(219,226,238,.18);
+}
+
+/* ---------- broadcast card tags ---------- */
+.card-tag {
+  position: absolute; top: -8px; left: 12px;
+  background: var(--f1red); color: #fff;
+  font-size: 8px; font-weight: 700; font-style: italic;
+  letter-spacing: 1.5px; padding: 2px 9px; border-radius: 3px;
+  transform: skewX(-12deg);
 }
 
 /* ---------- sector card ---------- */
@@ -197,7 +208,7 @@ select {
 .arc.brk { stroke: var(--red); filter: drop-shadow(0 0 4px rgba(248,113,113,.5)); }
 .arc-tick { stroke: #2e3748; stroke-width: 2; }
 .speed {
-  fill: var(--text); font-size: 56px; font-weight: 900; font-style: italic;
+  fill: var(--text); font-size: 56px; font-weight: 700; font-style: italic;
   font-family: "Titillium Web", sans-serif;
   text-anchor: middle; font-variant-numeric: tabular-nums;
 }
@@ -209,7 +220,9 @@ select {
 .pill.on-drs { fill: #064e3b; stroke: #10b981; }
 .pill.on-ot { fill: #3b0764; stroke: #a855f7; }
 .pill-txt { fill: #5b6576; font-size: 10px; font-weight: 800; text-anchor: middle; letter-spacing: 1px; }
-.wheel-grip { fill: #3d4452; }
+.wheel-grip {
+  fill: none; stroke: #3d4452; stroke-width: 17; stroke-linecap: round;
+}
 .wheel-gripline line { stroke: #2b3039; stroke-width: 2; stroke-linecap: round; }
 .wheel-plate { fill: #282d38; stroke: #191d25; stroke-width: 1.5; }
 .wheel-screen { fill: #0c0f14; stroke: #454d5c; stroke-width: 1.5; }
@@ -250,7 +263,7 @@ select {
   cursor: pointer; box-shadow: 0 1px 6px rgba(0,0,0,.6);
 }
 #time-display {
-  font-variant-numeric: tabular-nums; font-weight: 900; font-style: italic;
+  font-variant-numeric: tabular-nums; font-weight: 700; font-style: italic;
   font-size: 15px; min-width: 90px; text-align: right;
 }
 

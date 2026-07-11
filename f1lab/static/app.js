@@ -843,7 +843,8 @@ function updateSectorCard() {
   const A = state.lapA, B = state.lapB;
   const secs = (l) => [l.s1_ms, l.s2_ms, l.s3_ms];
   const fmtS = (ms) => ms ? (ms / 1000).toFixed(3) : "—";
-  let html = `<table><tr><th></th><th class="s1">S1</th><th class="s2">S2</th>
+  let html = `<div class="card-tag">TIMING</div>
+    <table><tr><th></th><th class="s1">S1</th><th class="s2">S2</th>
     <th class="s3">S3</th><th>LAP</th></tr>
     <tr><td class="rowlbl">${B ? "YOU" : "LAP"}</td>
       ${secs(A).map((v) => `<td>${fmtS(v)}</td>`).join("")}
