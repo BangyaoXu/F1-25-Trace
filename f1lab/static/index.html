@@ -48,11 +48,15 @@ if (location.protocol === "file:") {
           <!-- steering wheel -->
           <g transform="translate(72,96)">
             <g id="wheel-rot">
-              <circle cx="0" cy="0" r="47" class="wheel-rim"/>
-              <line x1="-43" y1="0" x2="43" y2="0" class="wheel-spoke"/>
-              <line x1="0" y1="6" x2="0" y2="43" class="wheel-spoke"/>
-              <circle cx="0" cy="0" r="11" class="wheel-hub"/>
-              <rect x="-6" y="-51" width="12" height="10" rx="3" class="wheel-marker"/>
+              <rect x="-56" y="-28" width="17" height="56" rx="8" class="wheel-grip"/>
+              <rect x="39" y="-28" width="17" height="56" rx="8" class="wheel-grip"/>
+              <rect x="-44" y="-28" width="88" height="13" rx="6" class="wheel-body"/>
+              <rect x="-28" y="-19" width="56" height="36" rx="6" class="wheel-body"/>
+              <rect x="-19" y="-13" width="38" height="23" rx="3" class="wheel-screen"/>
+              <rect x="-9" y="15" width="18" height="15" rx="5" class="wheel-body"/>
+              <circle cx="-24" cy="-22" r="2.4" class="wheel-btn-r"/>
+              <circle cx="24" cy="-22" r="2.4" class="wheel-btn-b"/>
+              <rect x="-5" y="-33" width="10" height="7" rx="2" class="wheel-marker"/>
             </g>
           </g>
           <text id="steer-val" x="72" y="170" class="steer-val">0</text>
