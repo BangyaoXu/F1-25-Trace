@@ -183,4 +183,15 @@ licensed under the [SIL Open Font License 1.1](f1trace/static/fonts/OFL.txt).
 Bundled circuit outlines (`f1trace/static/tracks.json`) are derived from the
 [f1-circuits](https://github.com/bacinger/f1-circuits) dataset, © 2019–2025
 Tomislav Bacinger, [MIT License](f1trace/static/tracks-LICENSE.txt).
-Not affiliated with Formula 1 or EA/Codemasters.
+
+## Disclaimer
+
+TRACE is an unofficial fan project. It is not affiliated with, endorsed
+by, or sponsored by the Formula 1 companies, the FIA, Electronic Arts
+Inc., or Codemasters. F1, FORMULA 1, FORMULA ONE, FIA FORMULA ONE WORLD
+CHAMPIONSHIP, GRAND PRIX and related marks are trademarks of Formula One
+Licensing B.V.; EA, Codemasters and the F1 25 game title belong to
+Electronic Arts Inc. and its subsidiaries. These names appear here only
+to identify the game the tool reads telemetry from. TRACE does not
+modify the game or its files — it listens to the telemetry stream the
+game itself broadcasts over its documented UDP interface.
