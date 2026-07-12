@@ -1442,8 +1442,10 @@ function buildChart(cfg) {
     ctx.lineWidth = width * dpr; ctx.stroke();
     ctx.restore(); ctx.globalAlpha = 1;
   }
+  // comparing: color says whose lap it is — you cyan, reference orange,
+  // the same pair as the gap ramp; the row label already names the channel
   if (state.lapB) trace(state.lapB, "#fb923c", 0.5, 1);
-  trace(A, cfg.color || "#22d3ee", 1, 1.5);
+  trace(A, state.lapB ? "#22d3ee" : cfg.color || "#22d3ee", 1, 1.5);
 
   chartCache[cfg.id] = { img: ctx.getImageData(0, 0, w, h), d0, d1, w, h };
 }
@@ -1549,6 +1551,7 @@ function applyHudPos() {
 function rebuildScene() {
   const has = !!state.lapA;
   applyHudPos();
+  $("charts").classList.toggle("compare", !!state.lapB);
   $("empty-hint").style.display = has ? "none" : "";
   $("map-toolbar").style.display = has ? "" : "none";
   $("sector-card").style.display = has ? "" : "none";
