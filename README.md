@@ -10,6 +10,9 @@ which corners, and whether it's braking or throttle.
 
 *Unofficial fan project — not affiliated with Formula 1 or EA/Codemasters.*
 
+**[Try it in your browser](https://lmc4s.github.io/F1-Lab/)** — the two
+bundled demo laps in the full viewer, nothing to install.
+
 ![The PB ghost compared against the best recorded lap: speed-colored racing line, green corner badges, telemetry charts and delta trace](docs/img/compare-speed.png)
 *The PB ghost vs the day's best lap: racing line colored by speed, a badge
 on every corner where the PB gains 0.1 s or more, input traces and the
@@ -28,10 +31,17 @@ fallback.
 On a Mac, if the project came as a zip download, the first double-click
 may be blocked — right-click the file and choose **Open** once.
 
-Or from a terminal:
+Or from a terminal: `python3 -m f1lab` in the project folder. Don't have
+the project yet? One pasted line downloads it and starts it — Mac:
 
 ```bash
-python3 -m f1lab
+curl -L https://github.com/LMC4S/F1-Lab/archive/refs/heads/main.tar.gz | tar xz && cd F1-Lab-main && python3 -m f1lab
+```
+
+Windows (PowerShell):
+
+```powershell
+iwr https://github.com/LMC4S/F1-Lab/archive/refs/heads/main.zip -OutFile F1-Lab.zip; Expand-Archive F1-Lab.zip . -Force; cd F1-Lab-main; python -m f1lab
 ```
 
 Nothing to install: any Python 3 will do — it's standard library only.

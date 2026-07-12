@@ -24,6 +24,7 @@ const state = {
   folded: new Set(), // collapsed session ids in the lap list
   hudSteer: true,    // steering section of the telemetry card visible
   hudPos: null,      // dragged card position {x, y} as stage fractions
+  readonly: false,   // static hosting (GitHub Pages demo): nothing to delete
 };
 
 /* ---------------------------------------------------------------- color */
@@ -666,7 +667,9 @@ async function autoloadDemo() {
 let lastLapStamp = "";
 async function pollStatus() {
   try {
-    const st = await api("/api/status");
+    const st = await api("api/status");
+    state.readonly = !!st.static;
+    if (state.readonly) $("list-foot").style.display = "none";
     const chip = $("status-chip");
     if (st.demo) {
       chip.className = "chip idle"; chip.textContent = "DEMO";
@@ -711,7 +714,7 @@ async function pollStatus() {
 /* ---------------------------------------------------------------- tracks & laps */
 
 async function loadTracks(keepSelection) {
-  state.tracks = await api("/api/tracks");
+  state.tracks = await api("api/tracks");
   const sel = $("track-select");
   const prev = state.trackId;
   sel.innerHTML = "";
@@ -732,7 +735,7 @@ async function loadTracks(keepSelection) {
 
 async function selectTrack(id) {
   state.trackId = id;
-  state.laps = await api(`/api/tracks/${id}/laps`);
+  state.laps = await api(`api/tracks/${id}/laps`);
   renderLapList();
 }
 
@@ -829,15 +832,15 @@ function renderLapList() {
       </div>
       <button class="refbtn ${isRef ? "on" : ""}"
         title="${isRef ? "stop comparing against this lap" : "compare the viewed lap against this one"}">VS</button>
-      <button class="del" title="delete lap">✕</button>`;
+      ${state.readonly ? "" : '<button class="del" title="delete lap">✕</button>'}`;
     row.addEventListener("click", () => viewLap(lap.id));
     row.querySelector(".refbtn").addEventListener("click", (e) => {
       e.stopPropagation(); toggleRef(lap.id);
     });
-    row.querySelector(".del").addEventListener("click", async (e) => {
+    row.querySelector(".del")?.addEventListener("click", async (e) => {
       e.stopPropagation();
       if (!confirm("Delete this lap?")) return;
-      await api(`/api/laps/${lap.id}`, { method: "DELETE" });
+      await api(`api/laps/${lap.id}`, { method: "DELETE" });
       if (state.lapA && state.lapA.id === lap.id) state.lapA = null;
       if (state.lapB && state.lapB.id === lap.id) state.lapB = null;
       await loadTracks(true);
@@ -849,7 +852,7 @@ function renderLapList() {
 
 async function viewLap(id) {
   await tracksReady;
-  state.lapA = prepLap(await api(`/api/laps/${id}`));
+  state.lapA = prepLap(await api(`api/laps/${id}`));
   state.t = 0; state.playing = true;
   renderLapList(); rebuildScene();
 }
@@ -857,7 +860,7 @@ async function toggleRef(id) {
   await tracksReady;
   if (state.lapB && state.lapB.id === id) state.lapB = null;
   else {
-    state.lapB = prepLap(await api(`/api/laps/${id}`));
+    state.lapB = prepLap(await api(`api/laps/${id}`));
     state.mode = "gap";   // comparing: show where time is gained/lost
   }
   renderLapList(); rebuildScene();
@@ -1880,7 +1883,7 @@ $("inv-del").addEventListener("click", async () => {
   if (!confirm("Delete ALL invalid laps — every track, every session, " +
                "not just the ones listed here. This cannot be undone. " +
                "Continue?")) return;
-  await api("/api/laps/invalid", { method: "DELETE" });
+  await api("api/laps/invalid", { method: "DELETE" });
   if (state.lapA && !state.lapA.valid) { state.lapA = null; state.playing = false; }
   if (state.lapB && !state.lapB.valid) state.lapB = null;
   await loadTracks(true);
