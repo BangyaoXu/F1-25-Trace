@@ -445,9 +445,9 @@ header {
   cursor: pointer; box-shadow: 0 1px 6px rgba(0,0,0,.6);
 }
 #time-display {
-  margin-left: auto; pointer-events: none;
+  flex: none; width: 70px; text-align: right;
   font-variant-numeric: tabular-nums; font-weight: 700; font-style: italic;
-  font-size: 15px; text-align: right;
+  font-size: 15px;
 }
 
 /* ---------- charts ---------- */
@@ -472,10 +472,11 @@ header {
   display: flex; align-items: stretch; gap: 8px; margin-top: 4px;
 }
 .chart-row.tall { flex: 1.5; }
-/* label width + row gap (8px) = play btn + speed select + transport gaps,
-   so the chart canvases and the scrub bar share the same x range */
+/* label width + row gap (8px) = play btn + speed select + time display
+   + transport gaps, so the chart canvases and the scrub bar share the
+   same x range */
 .chart-row label {
-  width: 104px; flex: none; font-size: 9px; font-weight: 700;
+  width: 184px; flex: none; font-size: 9px; font-weight: 700;
   letter-spacing: 1px; color: var(--dim); padding-top: 4px; text-align: right;
 }
 canvas.chart { flex: 1; min-width: 0; min-height: 0; cursor: crosshair; }
