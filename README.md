@@ -8,6 +8,11 @@ where you gain or lose.
 
 No dependencies — Python 3 standard library only.
 
+![Comparing your lap against a rival ghost: speed-colored racing line, corner time badges, telemetry charts and delta trace](docs/img/compare-speed.png)
+*Your personal best vs a leaderboard rival's ghost: racing line colored by
+speed, badges on every corner costing (or gaining) 0.1 s+, sector timing,
+input traces and the time-delta graph.*
+
 ## Run
 
 ```bash
@@ -79,6 +84,15 @@ outlines** for every 2026-calendar track including Madrid
   RESET to fit): every chart re-scales to that stretch of track so you can
   study braking points in detail.
 - Space = play/pause, ←/→ = seek 1 s (Shift = 5 s), click charts or map to seek.
+
+![GAP mode: the racing line colored by who is faster where](docs/img/compare-gap.png)
+*GAP mode — track dominance: cyan where you're faster than the reference,
+orange where the reference is faster.*
+
+![Setup panel: car setup and assist settings of both laps side by side](docs/img/setup-panel.png)
+*SETUP — the viewed lap's car setup and assists next to the reference
+lap's, so a time difference can be traced to the car, not just the
+driving.*
 
 ## Testing without the game
 
