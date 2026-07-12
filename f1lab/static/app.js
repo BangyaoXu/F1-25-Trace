@@ -736,12 +736,6 @@ function assistsOn(a) {
             a.brake_assist || a.steer_assist);
 }
 
-/* One on/off badge; the details live in the SETUP panel + hover title. */
-function assistBadge(lap) {
-  return assistsOn(lap.assists)
-    ? `<span class="asst" title="${assistLine(lap.assists)}">ASSISTS</span>` : "";
-}
-
 function visibleLaps() {
   let laps = state.laps.slice();
   if (state.roleFilter === "player")
@@ -810,8 +804,7 @@ function renderLapList() {
       <div class="lap-main">
         <div class="lap-time">${fmtTime(lap.lap_time_ms, 1)} ${gap}
           ${lap.id === bestId ? '<span class="pb">BEST</span>' : ""}
-          ${lap.valid ? "" : '<span class="inv">INV</span>'}
-          ${assistBadge(lap)}</div>
+          ${lap.valid ? "" : '<span class="inv">INV</span>'}</div>
         <div class="lap-sub">${sub}</div>
       </div>
       <button class="refbtn ${isRef ? "on" : ""}"

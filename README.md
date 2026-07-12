@@ -1,12 +1,14 @@
-# F1 Lab — telemetry recorder + learning viewer
+# F1 Lab
 
-Records UDP telemetry from **F1 25 / F1 25: 2026 Season Pack** and gives you a
-replay-and-compare viewer: real track map drawn from your car's actual world
-coordinates, halo-style dashboard (throttle / brake / speed / gear / DRS /
-overtake), and lap-vs-lap comparison with a time-delta trace that shows exactly
-where you gain or lose.
+You're two seconds off the ghost. Which corners? Braking too early, or
+getting on the throttle too late?
 
-No dependencies — Python 3 standard library only.
+F1 Lab answers that for **F1 25, the EA / Codemasters racing game** (2026
+Season Pack supported — this is about the video game, not real-world F1).
+The game broadcasts live telemetry while you drive; F1 Lab records every
+completed lap — yours and the Time Trial ghosts' — keeps them across
+sessions, and lets you replay and compare any two: track map, dashboard,
+input traces, time delta, and a badge on every corner that costs you time.
 
 ![Comparing your lap against a rival ghost: speed-colored racing line, corner time badges, telemetry charts and delta trace](docs/img/compare-speed.png)
 *Your personal best vs a leaderboard rival's ghost: racing line colored by
@@ -18,6 +20,8 @@ input traces and the time-delta graph.*
 ```bash
 python3 -m f1lab
 ```
+
+Nothing to install: any Python 3 will do — it's standard library only.
 
 - Recorder listens on UDP **20777**
 - Viewer at **http://localhost:8020**

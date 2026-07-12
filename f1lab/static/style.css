@@ -154,11 +154,6 @@ header {
   font-weight: 800; font-style: italic; color: var(--dim);
 }
 .lap-row .gap { font-size: 10px; font-weight: 600; color: var(--dim); }
-.lap-row .asst {
-  font-size: 8px; font-weight: 800; letter-spacing: .5px; color: #b9a24a;
-  background: #2b2410; border-radius: 3px; padding: 1px 4px; margin-left: 3px;
-  vertical-align: 1px;
-}
 .sess-head {
   position: sticky; top: 0; z-index: 1;
   padding: 6px 12px 4px; font-size: 10px; font-weight: 700;
