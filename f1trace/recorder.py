@@ -5,10 +5,11 @@ latest-value cache for the player's car for motion/telemetry/status
 packets and snapshots a sample row every time a LapData packet arrives
 (LapData carries the two join keys: currentLapTime and lapDistance).
 
-Only the player's car is recorded. Versions before 0.1.4 also captured
-the Time Trial ghosts; the game's shadow-car telemetry turned out to be
-largely fabricated, so that was removed — the history is in
-docs/design-notes.md.
+Full telemetry is recorded for the player's car only. The Time Trial
+ghosts are captured as **pace references**: just their lapDistance/lap
+clock series plus the TimeTrial packet's times — the only ghost data
+the game broadcasts honestly. (Versions up to 0.1.3 stored full ghost
+telemetry; most of it was fabricated — docs/design-notes.md.)
 """
 
 import datetime
@@ -43,7 +44,7 @@ class Recorder(threading.Thread):
         self.status = {
             "listening": False, "udp_port": udp_port, "packets": 0, "pps": 0,
             "packet_format": None, "session": None, "live": None,
-            "last_lap": None, "warnings": [],
+            "last_lap": None, "ghosts": None, "warnings": [],
             "packet_sizes": {},   # pid -> observed byte size (layout probe)
             "cars": {},           # tracked car idx -> live buffer stats
         }
@@ -66,6 +67,11 @@ class Recorder(threading.Thread):
         self.setups = {}        # car_idx -> setup dict
         self.teams = {}         # car_idx -> team id
         self.sess_assists = None   # player assist settings (Session packet)
+        self.pb_idx = 255          # Time Trial ghost car indices
+        self.rival_idx = 255
+        self.tt = None             # TimeTrial packet datasets
+        self.ghost_bufs = {}       # car_idx -> [(t_ms, dist), ...]
+        self.stored_ghost_times = set()  # (role, lap_time_ms) dedupe
 
     def _set_status(self, **kw):
         with self._status_lock:
@@ -158,6 +164,8 @@ class Recorder(threading.Thread):
             self.setups.update(packets.parse_car_setups(data, fmt, self._wanted()))
         elif pid == packets.PARTICIPANTS:
             self.teams.update(packets.parse_participants(data, fmt))
+        elif pid == packets.TIME_TRIAL:
+            self.tt = packets.parse_time_trial(data, fmt)
         elif pid == packets.SESSION:
             self.sess_assists = packets.parse_session_assists(data)
             self._on_session(data, h)
@@ -195,7 +203,13 @@ class Recorder(threading.Thread):
     # ---------------------------------------------------------- lap data
 
     def _on_lap_data(self, data, fmt):
-        cars = packets.parse_lap_data(data, fmt)
+        cars, pb_idx, rival_idx = packets.parse_lap_data(data, fmt)
+        self.pb_idx, self.rival_idx = pb_idx, rival_idx
+        self._set_status(ghosts={"pb": pb_idx != 255,
+                                 "rival": rival_idx != 255})
+        for gidx in {pb_idx, rival_idx} - {255, self.player_idx}:
+            self._ghost_sample(gidx, cars.get(gidx))
+
         idx = self.player_idx
         cl = cars.get(idx) if idx is not None else None
         if cl is None:
@@ -269,6 +283,85 @@ class Recorder(threading.Thread):
     COLUMNS = ("t", "d", "x", "y", "z", "spd", "thr", "brk", "str",
                "gear", "drs", "ot", "rpm", "tfl", "tfr", "trl", "trr",
                "fuel", "ers", "aero")
+
+    # ------------------------------------------------- ghost pace reference
+
+    def _ghost_sample(self, idx, cl):
+        """Collect the ghost's (lap clock, lapDistance) pair — the two
+        channels genuine in every session. Nothing else of the shadow
+        car's broadcast is read."""
+        if cl is None:
+            return
+        buf = self.ghost_bufs.get(idx)
+        if buf is None:
+            buf = self.ghost_bufs[idx] = []
+        if cl.lap_distance < 0 or cl.current_lap_ms <= 0:
+            return
+        if buf:
+            lt, ld = buf[-1]
+            if cl.current_lap_ms == lt:
+                return  # duplicate frame
+            if cl.current_lap_ms < lt or cl.lap_distance < ld - 1.0:
+                # ghosts don't flashback: a clock or distance rewind is
+                # the ghost restarting its loop at the line (lap_num
+                # never increments)
+                self._finalize_ghost(idx, buf, cl.last_lap_ms or lt)
+                buf = self.ghost_bufs[idx] = []
+        buf.append((cl.current_lap_ms, round(cl.lap_distance, 1)))
+
+    def _finalize_ghost(self, idx, buf, lap_time_ms):
+        role = "pb_ghost" if idx == self.pb_idx else "rival"
+        if lap_time_ms <= 0 or self.session_row_id is None:
+            return
+        # a ghost that finishes before the player parks at the line while
+        # the shared lap clock keeps counting — cut that filler tail
+        samples = [s for s in buf if s[0] <= lap_time_ms]
+        if len(samples) < 50:
+            return
+        span = samples[-1][1] - samples[0][1]
+        if self.track_length and (span < 0.9 * self.track_length or
+                                  samples[-1][1] < self.track_length - 50):
+            return  # partial loop (player restart rewinds the ghost mid-lap)
+        key = (role, lap_time_ms)
+        if key in self.stored_ghost_times:
+            return  # the same ghost lap repeats every player lap
+        self.stored_ghost_times.add(key)
+
+        # times, team and assists come from the TimeTrial packet — the
+        # only officially supported ghost data
+        s1 = s2 = 0
+        team = None
+        assists = None
+        ds = self.tt.get("rival" if role == "rival"
+                         else "personal_best") if self.tt else None
+        if ds and ds.get("car_idx") == idx and ds.get("lap_ms") == lap_time_ms:
+            s1, s2 = ds["s1_ms"], ds["s2_ms"]
+            team = ds["team"] or None
+            assists = {"tc": ds["tc"], "abs": ds["abs"],
+                       "gearbox": ds["gearbox"],
+                       "custom_setup": ds["custom_setup"],
+                       "equal_perf": ds["equal_perf"]}
+        s3 = lap_time_ms - s1 - s2 if s1 and s2 else 0
+        cols = {"t": [t for t, _ in samples], "d": [d for _, d in samples]}
+        self.con.execute(
+            "INSERT INTO laps (session_id, car_role, car_index, lap_num,"
+            " lap_time_ms, s1_ms, s2_ms, s3_ms, valid, tyre_visual,"
+            " top_speed, n_samples, created_at, samples, setup, assists,"
+            " team_id)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (self.session_row_id, role, idx, 1, lap_time_ms,
+             s1, s2, s3, 1, None, None, len(samples), _now(),
+             db.pack_samples(cols),
+             None, json.dumps(assists) if assists else None, team))
+        self.con.commit()
+        print("[f1trace] stored %s pace reference — %s"
+              % (role, _fmt_time(lap_time_ms)))
+        self._set_status(last_lap={
+            "role": role, "lap_num": 1,
+            "lap_time_ms": lap_time_ms, "valid": True,
+        })
+
+    # ------------------------------------------------- player lap finalize
 
     def _assists_for(self, st):
         """Assist settings for a finishing lap: per-car TC/ABS from

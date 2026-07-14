@@ -24,6 +24,8 @@ if (location.protocol === "file:") {
 <header>
   <div class="brand" id="brand"><b>F1</b><span>TRACE</span></div>
   <div id="status-chip" class="chip idle">IDLE</div>
+  <div id="pace-chip" class="chip live" style="display:none"
+       title="a Time Trial ghost is on track — its pace (lap clock vs distance, sector times) is being captured as a reference">PACE</div>
   <div id="status-detail"></div>
   <div class="spacer"></div>
   <select id="track-select" title="track — all laps ever recorded on it, from every session"></select>

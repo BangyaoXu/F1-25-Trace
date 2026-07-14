@@ -1,18 +1,19 @@
-"""Fake F1 25 (2026 Season Pack) game: replays the two bundled Melbourne
-laps from `f1trace/demo.db` as real UDP telemetry so the whole pipeline can
-be tested without the game.
+"""Fake F1 25 (2026 Season Pack) game: replays the bundled Melbourne laps
+from `f1trace/demo.db` as real UDP telemetry so the whole pipeline can be
+tested without the game.
 
-Player car (idx 0) drives the slower lap; the rival ghost (idx 1) drives
-the faster one and reproduces the real game's shadow-car quirks: it runs
-on the player's lap clock (parking at the line when it finishes first,
-rewinding when the player starts a new lap), its LapData sector fields
-are junk, and its CarTelemetry slot interleaves genuine frames with a
-constant flat-out placeholder (~486 km/h) whose junk speed also leaks
-into Motion's velocity vector. That fabricated stream is why TRACE
-stopped recording ghosts in 0.1.4 (docs/design-notes.md) — the ghost is
-still simulated here so a test run proves the recorder ignores it: only
-the player's laps may come out. Positions are the laps' real recorded
-coordinates.
+Player car (idx 0) drives the player lap; the rival ghost (idx 1) drives
+the faster full-telemetry lap and reproduces the real game's shadow-car
+quirks: it runs on the player's lap clock (parking at the line when it
+finishes first, rewinding when the player starts a new lap), its LapData
+sector fields are junk, and its CarTelemetry slot interleaves genuine
+frames with a constant flat-out placeholder (~486 km/h) whose junk speed
+also leaks into Motion's velocity vector. That fabricated stream is why
+TRACE keeps only a times-only pace reference per ghost
+(docs/design-notes.md) — the junk is simulated here so a test run proves
+the recorder reads nothing but the ghost's lap clock, lapDistance and
+TimeTrial packet: the expected output is the player's full laps plus one
+rival pace reference with only t/d columns.
 
 Usage:  python3 tools/fake_game.py [--speedup 20] [--port 20777]
 """
@@ -102,18 +103,25 @@ def _interp(xs, ys, x):
 
 
 def load_demo_db():
-    """The two bundled Melbourne laps: (player 1:19.782, guest 1:18.758)."""
+    """The bundled Melbourne laps: the player lap plus the fastest other
+    lap that still has full telemetry (the times-only rival pace
+    reference can't drive a simulated car)."""
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     con = sqlite3.connect(os.path.join(root, "f1trace", "demo.db"))
-    laps = {}
+    player, others = None, []
     for role, lap_ms, s1, s2, setup, blob in con.execute(
             "SELECT car_role, lap_time_ms, s1_ms, s2_ms, setup, samples"
             " FROM laps"):
         cols = json.loads(zlib.decompress(blob))
-        laps[role] = Lap(cols, lap_ms, s1 or 0, s2 or 0,
-                         json.loads(setup) if setup else None)
-    other = next(laps[r] for r in laps if r != "player")
-    return laps["player"], other
+        if "spd" not in cols:
+            continue
+        lap = Lap(cols, lap_ms, s1 or 0, s2 or 0,
+                  json.loads(setup) if setup else None)
+        if role == "player":
+            player = lap
+        else:
+            others.append(lap)
+    return player, min(others, key=lambda l: l.lap_ms)
 
 
 # ------------------------------------------------------------ packet builders

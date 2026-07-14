@@ -42,13 +42,13 @@ reverted to base F1 25 mid-evening: the misread field labelled a
 Mercedes session as Red Bull. The parser now switches the offset on the
 per-packet format field.
 
-## Ghost capture: tried in 0.1.0–0.1.3, removed in 0.1.4
+## Ghost data: what is real, what the game fabricates
 
-Early versions also recorded the Time Trial ghosts. The LapData packet
-trailer names the PB-ghost and rival car indices, and a loaded
-leaderboard rival broadcasts on a normal car slot — which promised the
-tool's most interesting comparison: the complete lap of any faster
-driver, no exports needed.
+The Time Trial ghosts looked like the tool's most interesting data
+source: the LapData packet trailer names the PB-ghost and rival car
+indices, and a loaded leaderboard rival broadcasts on a normal car
+slot — promising the complete lap of any faster driver, no exports
+needed. Versions 0.1.0–0.1.3 recorded that full stream.
 
 The promise did not survive contact with the data. What live sessions
 showed, channel by channel:
@@ -75,45 +75,69 @@ placeholders but cannot recover data the game never sent, and in
 sessions where most frames are junk the resulting throttle/brake traces
 are effectively fiction.
 
-That is the reason for removal: **the only ghost channels trustworthy
-in every session were position and times — and the tool's job is
-showing what the faster driver did with the pedals. A reference lap
+Full ghost capture was therefore removed in 0.1.4: **the only ghost
+channels trustworthy in every session were position, the lap
+clock/distance and the TimeTrial packet's times — and a reference lap
 with fabricated inputs misleads exactly where the tool is supposed to
-be authoritative.** The cost side sealed it: every entry in the
-recorder's quirk-rule budget was a ghost rule — loop detection
-(clock/distance rewind ⇒ finalize), parked-at-the-line tail trimming,
-interrupted-loop drops, `(role, lap_time_ms)` dedupe, TimeTrial sector
-override, placeholder detection. Removing the capture deleted all of
-them, plus the TimeTrial parser and the derived-speed machinery, and
-the recorder now stores only data it can fully believe — per the
-guiding constraints above.
+be authoritative.** The official spec agrees by omission: the words
+"ghost" and "shadow car" appear nowhere in EA's UDP documentation, and
+the only Time-Trial-specific data it defines is the TimeTrial packet —
+times, team and assist flags. Everything else TRACE used to read from
+the ghost's car slot was undocumented behaviour that happened to look
+plausible in some sessions.
 
-What remains:
+### Pace references (0.2.0): keep exactly the trustworthy subset
 
-- Ghost laps recorded by older versions keep their `pb_ghost` / `rival`
-  roles, stay viewable, and the viewer still smooths their derived
-  speed channel for display.
-- Faster drivers' laps still get in the honest way: another TRACE user
-  exports a `.trace` file of a lap they actually drove (stored as role
-  `guest`).
-- `tools/fake_game.py` still simulates the shadow car with all its
-  quirks, as a regression test that the recorder ignores it — the pass
-  criterion is that only player laps come out.
+Which corner the ghost gains in doesn't need pedals — it needs
+time-at-distance, and that is precisely the pair of channels genuine in
+every observed session. So ghosts came back in 0.2.0 as a
+**fundamentally different object**: a *pace reference*, not a lap.
+
+- **Stored**: the `(currentLapTime, lapDistance)` series, and the
+  TimeTrial packet's lap/sector times, team and assist flags. A pace
+  reference's sample blob has only `t` and `d` columns; `top_speed`
+  and setup stay NULL.
+- **Not stored**: speed, throttle, brake, steering, gear, positions —
+  the channels the game fabricates. Absence is the honest statement.
+- **In the viewer** pace references are compare-only (clicking one
+  sets it as the reference): the DELTA graph, per-corner badges,
+  GAP-mode dominance and the sector table all derive from
+  time-at-distance and are fully real; the map dot rides the circuit
+  outline by lap distance; the telemetry charts simply show no
+  reference line.
+- **Old ghost laps are converted, not kept**: on first start after the
+  upgrade a one-shot migration (`db._strip_ghost_channels`) strips
+  every stored `pb_ghost`/`rival` lap down to `t`/`d`, so no
+  fabricated brake trace from any era renders again. Times were
+  always real; that is what remains.
+- Complete laps to study inputs against still exist: the player's
+  own, and `.trace` files exported by other TRACE users from their
+  real laps (role `guest`).
+- `tools/fake_game.py` keeps simulating the shadow car junk included,
+  as a regression test that nothing beyond `t`/`d` and TimeTrial data
+  leaks into the database.
 
 ### Rule budget
 
 The recorder deliberately carries very few game-quirk rules, and each
 one must map to a *specific, observed* game behaviour — that is the
-guard against heuristic creep. Since ghost capture left, the inventory
-is a single rule: a **flashback/rewind** drops the samples past the
-rewound position and keeps recording, so the lap stays a single lap
-(the game keeps its own `invalid` flag, which is stored as-is). At its
-peak the table held seven entries, six of them ghost rules — the
-section above records where they went.
+guard against heuristic creep. Current inventory:
 
-If a rule ever ends up in this file without a concrete behaviour
-attached, that is the signal the receiver is getting too clever —
-remove or re-verify it.
+| Rule | Observed behaviour it answers |
+| --- | --- |
+| player flashback/rewind drops samples past the rewound position | flashbacks rewind the lap mid-flight; the lap must stay one lap (the game's own `invalid` flag is stored as-is) |
+| ghost loop detection: clock/distance rewind ⇒ finalize | ghosts loop at the line without ever incrementing `lap_num`; ghosts never flashback |
+| drop ghost samples past the final lap time | a ghost faster than the player parks at the line while the shared lap clock keeps counting — filler tail |
+| drop ghost loops that end short of the line | a player restart rewinds the ghost mid-lap; a truncated loop would also poison dedupe |
+| `(role, lap_time_ms)` dedupe | the same ghost lap replays every player lap |
+| ghost sectors/team/assists only from a TimeTrial dataset matching car index and lap time | ghost LapData sector fields are junk; the TimeTrial packet is the official source |
+
+The 0.1.x placeholder-detection and derived-speed rules are gone for
+good: pace references never read the channels those rules defended.
+
+If a rule ever ends up in this file without a concrete behaviour in
+the right column, that is the signal the receiver is getting too
+clever — remove or re-verify it.
 
 ## Storage choices
 

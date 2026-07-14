@@ -25,8 +25,8 @@ CREATE TABLE IF NOT EXISTS sessions (
 CREATE TABLE IF NOT EXISTS laps (
     id INTEGER PRIMARY KEY,
     session_id INTEGER NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-    car_role TEXT NOT NULL,          -- player | guest (imported); DBs from
-                                     -- before 0.1.4 also hold pb_ghost/rival
+    car_role TEXT NOT NULL,          -- player | guest (imported) | pb_ghost /
+                                     -- rival (times-only pace references)
     car_index INTEGER,
     lap_num INTEGER,
     lap_time_ms INTEGER,
@@ -62,7 +62,33 @@ def _migrate(con):
                      ("team_id", "INTEGER")):
         if col not in cols:
             con.execute("ALTER TABLE laps ADD COLUMN %s %s" % (col, typ))
+    _strip_ghost_channels(con)
     con.commit()
+
+
+def _strip_ghost_channels(con):
+    """Ghost laps are times-only pace references since 0.2.0. Laps stored
+    by the 0.1.x full-telemetry ghost capture carry fabricated channels
+    (placeholder-poisoned inputs, derived speed) — strip them down to the
+    genuine time-at-distance series. Idempotent: converted laps have only
+    t and d left, so they are skipped on later runs."""
+    rows = con.execute(
+        "SELECT id, samples FROM laps"
+        " WHERE car_role IN ('pb_ghost', 'rival') AND samples IS NOT NULL"
+    ).fetchall()
+    for row in rows:
+        try:
+            s = unpack_samples(row["samples"])
+        except Exception:
+            continue
+        if set(s) <= {"t", "d"}:
+            continue
+        kept = {"t": s["t"], "d": s["d"]}
+        con.execute(
+            "UPDATE laps SET samples=?, top_speed=NULL, setup=NULL"
+            " WHERE id=?", (pack_samples(kept), row["id"]))
+        print("[f1trace] converted ghost lap %d to a times-only"
+              " pace reference" % row["id"])
 
 
 def pack_samples(columns):

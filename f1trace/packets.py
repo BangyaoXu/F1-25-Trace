@@ -23,6 +23,7 @@ PARTICIPANTS = 4
 CAR_SETUPS = 5
 CAR_TELEMETRY = 6
 CAR_STATUS = 7
+TIME_TRIAL = 14
 CAR_TELEMETRY2 = 16
 
 
@@ -187,16 +188,18 @@ class CarLap:
 
 
 def parse_lap_data(data, fmt):
-    """Return {car_idx: CarLap}. (The packet trailer also names the Time
-    Trial PB/rival ghost car indices, which TRACE no longer reads — see
-    docs/design-notes.md on the removed ghost capture.)"""
+    """Return ({car_idx: CarLap}, pb_ghost_idx, rival_idx); indices 255 =
+    none. The ghost indices feed the times-only pace-reference capture —
+    lapDistance and currentLapTime are the ghost channels genuine in every
+    session (docs/design-notes.md)."""
     n = num_cars(fmt)
     cars = {}
     for idx in range(n):
         off = HEADER.size + idx * _LAP_CAR.size
         v = _LAP_CAR.unpack_from(data, off)
         cars[idx] = CarLap(v)
-    return cars
+    trailer = HEADER.size + n * _LAP_CAR.size
+    return cars, data[trailer], data[trailer + 1]
 
 
 # ---------------------------------------------------------------- telemetry
@@ -241,6 +244,28 @@ def parse_car_status(data, fmt, wanted):
             "tc": v[0], "abs": v[1],
             "fuel": v[5], "tyre_actual": v[13], "tyre_visual": v[14],
             "ers_store": v[19], "ers_mode": v[20],
+        }
+    return out
+
+
+# ---------------------------------------------------------------- time trial
+
+_TT_SET_2026 = struct.Struct("<BHIIIIBBBBBB")  # 25 B
+_TT_SET_2025 = struct.Struct("<BBIIIIBBBBBB")  # 24 B
+
+
+def parse_time_trial(data, fmt):
+    """Return dict of three datasets: session_best, personal_best, rival.
+    The only officially supported ghost data — times, team, assists."""
+    st = _TT_SET_2026 if fmt >= 2026 else _TT_SET_2025
+    out = {}
+    for i, name in enumerate(("session_best", "personal_best", "rival")):
+        v = st.unpack_from(data, HEADER.size + i * st.size)
+        out[name] = {
+            "car_idx": v[0], "team": v[1], "lap_ms": v[2],
+            "s1_ms": v[3], "s2_ms": v[4], "s3_ms": v[5],
+            "tc": v[6], "gearbox": v[7], "abs": v[8],
+            "equal_perf": v[9], "custom_setup": v[10], "valid": v[11],
         }
     return out
 

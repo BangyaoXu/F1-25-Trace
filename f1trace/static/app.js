@@ -538,24 +538,12 @@ function prepLap(lap) {
   if (keep.length !== s.d.length) {
     for (const k of Object.keys(s)) s[k] = keep.map((i) => s[k][i]);
   }
-  // ghost laps captured by pre-0.1.4 recorders carry a speed channel
-  // derived from lapDistance (the game broadcasts no real speed for
-  // ghosts) with a little quantisation ripple — take it out for display
-  // with a Gaussian pass (sigma 2 frames: measured to remove every
-  // visible zigzag while leaving braking edges intact)
-  if ((lap.car_role === "pb_ghost" || lap.car_role === "rival") &&
-      s.spd.length > 12 && !lap.spdSmoothed) {
-    lap.spdSmoothed = true;
-    const R = 6, w = [], v = s.spd, n = v.length, sm = new Array(n);
-    let sw = 0;
-    for (let k = -R; k <= R; k++) { w.push(Math.exp(-k * k / 8)); sw += w[k + R]; }
-    for (let i = 0; i < n; i++) {
-      let acc = 0;
-      for (let k = -R; k <= R; k++)
-        acc += w[k + R] * v[Math.min(n - 1, Math.max(0, i + k))];
-      sm[i] = Math.round(acc / sw);
-    }
-    s.spd = sm;
+  // pace references (ghosts) carry no coordinates — flat zeros make
+  // synthCoords place them on the circuit outline by lap distance, the
+  // same fallback imported laps without position data use
+  if (!s.x) {
+    s.x = new Array(s.d.length).fill(0);
+    s.z = new Array(s.d.length).fill(0);
   }
   const geom = trackGeom(lap.track_id);
   if (geom) {
@@ -690,16 +678,19 @@ function styleSelect(sel) {
 /* ---------------------------------------------------------------- header / status */
 
 /* Demo mode: once the lap list is in, open the driven lap vs the bundled
-   reference lap so the first thing on screen is a full comparison. */
+   reference lap so the first thing on screen is a full comparison.
+   Prefer a full-telemetry reference (guest) over a times-only pace ref —
+   the chart overlay is the richer first impression. */
 let demoLoaded = false;
 async function autoloadDemo() {
   if (demoLoaded || state.lapA || !state.laps || !state.laps.length) return;
   demoLoaded = true;
-  const best = (role) => state.laps
-    .filter((l) => l.valid && l.lap_time_ms &&
-                   (l.car_role === "player") === (role === "player"))
+  const best = (pick) => state.laps
+    .filter((l) => l.valid && l.lap_time_ms && pick(l))
     .sort((a, b) => a.lap_time_ms - b.lap_time_ms)[0];
-  const you = best("player"), ref = best("other");
+  const you = best((l) => l.car_role === "player");
+  const ref = best((l) => l.car_role === "guest") ||
+              best((l) => l.car_role !== "player");
   if (you) await viewLap(you.id);
   if (ref) await toggleRef(ref.id);
 }
@@ -729,6 +720,13 @@ async function pollStatus() {
     if (st.live && st.pps > 0)
       detail += " · lap " + st.live.lap_num + " · " + fmtTime(st.live.lap_time_ms, 1);
     $("status-detail").textContent = detail;
+
+    // a ghost on track means its pace is being captured — show which one
+    const gc = $("pace-chip");
+    if (st.pps > 0 && st.ghosts && (st.ghosts.rival || st.ghosts.pb)) {
+      gc.style.display = "";
+      gc.textContent = st.ghosts.rival ? "RIVAL PACE ✓" : "PB PACE ✓";
+    } else gc.style.display = "none";
 
     const stamp = JSON.stringify(st.last_lap);
     if (stamp !== lastLapStamp) {
@@ -774,10 +772,17 @@ function fmtSession(lap) {
 }
 
 function roleBadge(role) {
-  // your own laps are the default case — only ghosts get a badge
+  // your own laps are the default case — only other cars' laps get a badge
   if (role === "player") return "";
   const label = { rival: "RIVAL", pb_ghost: "PB·G", guest: "GUEST" }[role] || role;
   return `<span class="badge ${role}">${label}</span>`;
+}
+
+/* Ghost laps are times-only pace references: real lap clock vs distance
+   (and TimeTrial-packet sector times), none of the fabricated channels.
+   They can be compared against, not viewed. */
+function isPaceRef(lap) {
+  return lap.car_role === "pb_ghost" || lap.car_role === "rival";
 }
 
 /* Any driving aid active? true / false / null (not recorded, older laps). */
@@ -846,9 +851,16 @@ function renderLapList() {
     const gap = ranked && i > 0 && lap.lap_time_ms && baseMs
       ? `<span class="gap">+${((lap.lap_time_ms - baseMs) / 1000).toFixed(3)}</span>` : "";
     const team = lap.team_name ? lap.team_name + " · " : "";
-    const sub = ranked
-      ? `${team}${fmtSession(lap).split(" · ")[0]} · L${lap.lap_num}`
-      : `${team}L${lap.lap_num}`;
+    const sub = isPaceRef(lap)
+      ? `${team}pace — times only`
+      : ranked
+        ? `${team}${fmtSession(lap).split(" · ")[0]} · L${lap.lap_num}`
+        : `${team}L${lap.lap_num}`;
+    if (isPaceRef(lap)) {
+      row.classList.add("pace");
+      row.title = "a ghost's pace: lap clock vs distance and sector times" +
+        " — no telemetry to view, so clicking compares against it";
+    }
     row.innerHTML = `
       ${ranked ? `<span class="rank">${i + 1}</span>` : ""}
       ${roleBadge(lap.car_role)}
@@ -861,7 +873,8 @@ function renderLapList() {
       <button class="refbtn ${isRef ? "on" : ""}"
         title="${isRef ? "stop comparing against this lap" : "compare the viewed lap against this one"}">VS</button>
       ${state.readonly ? "" : '<button class="del" title="delete lap">✕</button>'}`;
-    row.addEventListener("click", () => viewLap(lap.id));
+    row.addEventListener("click", () =>
+      isPaceRef(lap) ? toggleRef(lap.id) : viewLap(lap.id));
     row.querySelector(".refbtn").addEventListener("click", (e) => {
       e.stopPropagation(); toggleRef(lap.id);
     });
@@ -880,7 +893,14 @@ function renderLapList() {
 
 async function viewLap(id) {
   await tracksReady;
-  state.lapA = prepLap(await api(`api/laps/${id}`));
+  const lap = prepLap(await api(`api/laps/${id}`));
+  if (!lap.samples.spd) {   // times-only (pace ref, or an imported one):
+    state.lapB = lap;       // nothing to replay — compare against it
+    state.mode = "gap";
+    renderLapList(); rebuildScene();
+    return;
+  }
+  state.lapA = lap;
   state.t = 0; state.playing = true;
   renderLapList(); rebuildScene();
 }
@@ -1096,8 +1116,10 @@ function renderMapStatic() {
     if (state.lapB) fullStroke(state.lapB, "rgba(251,146,60,.25)", 1.5);
   }
 
-  // reference lap's line under the viewed lap's, for line comparison
-  if (geom && state.lapB)
+  // reference lap's line under the viewed lap's, for line comparison —
+  // except pace references: they have no driven line, only a position
+  // along the centerline, so drawing one would invent geometry
+  if (geom && state.lapB && !isPaceRef(state.lapB))
     fullStroke(state.lapB, "rgba(251,146,60,.55)", Math.max(1.5, 1.2 * mpx));
 
   // racing line colored by speed / gap; true car width when zoomed
@@ -1495,9 +1517,9 @@ function buildChart(cfg) {
   let max = cfg.max, min = cfg.min;
   if (max == null) {
     max = 0;
-    for (const lap of [A, state.lapB]) if (lap)
+    for (const lap of [A, state.lapB]) if (lap && lap.samples[cfg.col])
       max = Math.max(max, Math.max.apply(null, lap.samples[cfg.col]));
-    max = Math.ceil(max / 50) * 50;
+    max = Math.ceil(max / 50) * 50 || 50;
   }
   const w = cv.width, h = cv.height, padT = 3 * dpr, padB = 3 * dpr;
   // x domain: full lap, or the track section the map is zoomed into
@@ -1544,8 +1566,10 @@ function buildChart(cfg) {
   // a "ghost" — one neutral grey-white in every panel. Solid, not dashed:
   // the local differences against the reference are the whole point of
   // the comparison, so the line must be continuous — thinner and dimmer
-  // is what says "the other lap".
-  if (state.lapB) trace(state.lapB, "#b9c2d0", 0.75, 1);
+  // is what says "the other lap". A pace reference has no channels, so
+  // no line: its comparison lives in the DELTA panel and the map badges.
+  if (state.lapB && state.lapB.samples[cfg.col])
+    trace(state.lapB, "#b9c2d0", 0.75, 1);
   trace(A, cfg.color || "#22d3ee", 1, 1.5);
 
   chartCache[cfg.id] = { img: ctx.getImageData(0, 0, w, h), d0, d1, w, h };
@@ -1929,7 +1953,7 @@ function cursorReadouts(t, dA) {
   for (const [el, col] of [["speed", "spd"], ["thr", "thr"],
                            ["brk", "brk"], ["steer", "str"]]) {
     $("cvA-" + el).textContent = fmt[col](interp(sA.t, sA[col], t));
-    $("cvB-" + el).textContent = B
+    $("cvB-" + el).textContent = B && B.samples[col]
       ? fmt[col](interp(B.samples.d, B.samples[col], Math.min(dA, B.maxD)))
       : "";
   }
