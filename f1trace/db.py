@@ -25,7 +25,8 @@ CREATE TABLE IF NOT EXISTS sessions (
 CREATE TABLE IF NOT EXISTS laps (
     id INTEGER PRIMARY KEY,
     session_id INTEGER NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-    car_role TEXT NOT NULL,          -- player | pb_ghost | rival
+    car_role TEXT NOT NULL,          -- player | guest (imported); DBs from
+                                     -- before 0.1.4 also hold pb_ghost/rival
     car_index INTEGER,
     lap_num INTEGER,
     lap_time_ms INTEGER,

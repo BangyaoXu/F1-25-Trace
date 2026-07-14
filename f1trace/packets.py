@@ -23,7 +23,6 @@ PARTICIPANTS = 4
 CAR_SETUPS = 5
 CAR_TELEMETRY = 6
 CAR_STATUS = 7
-TIME_TRIAL = 14
 CAR_TELEMETRY2 = 16
 
 
@@ -49,9 +48,7 @@ _MOTION_CAR_2025 = struct.Struct("<ffffffhhhhhhffffff")  # 60 B, g-forces float
 
 
 def parse_motion(data, fmt, wanted):
-    """Return {car_idx: (x, y, z, g_lat, g_long, speed_kmh)} for wanted
-    car indices. Speed comes from the world velocity vector — it is
-    genuine even for cars whose CarTelemetry slot is restricted."""
+    """Return {car_idx: (x, y, z, g_lat, g_long)} for wanted car indices."""
     st = _MOTION_CAR_2026 if fmt >= 2026 else _MOTION_CAR_2025
     out = {}
     for idx in wanted:
@@ -63,8 +60,7 @@ def parse_motion(data, fmt, wanted):
             g_lat, g_long = v[12] / 100.0, v[13] / 100.0
         else:
             g_lat, g_long = v[12], v[13]
-        spd = (v[3] * v[3] + v[4] * v[4] + v[5] * v[5]) ** 0.5 * 3.6
-        out[idx] = (v[0], v[1], v[2], g_lat, g_long, spd)
+        out[idx] = (v[0], v[1], v[2], g_lat, g_long)
     return out
 
 
@@ -88,10 +84,12 @@ def parse_session(data):
 def parse_participants(data, fmt):
     """Return {car_idx: team_id} for the active cars.
 
-    Layout: header, numActiveCars (B), then one 60 B record per car slot
-    with teamId as uint16 at offset +5 (aiControlled B, driverId u16,
-    networkId u16). Per-record size is derived from the packet length so a
-    2026 layout change degrades to skipping, not misparsing."""
+    Layout: header, numActiveCars (B), then one fixed-size record per car
+    slot. teamId moved between formats: 2026 widened driverId and
+    networkId to uint16, putting teamId as uint16 at offset +5; in the
+    2025 layout all three lead fields are single bytes and teamId is a
+    uint8 at offset +3. Per-record size is derived from the packet length
+    so a layout change degrades to skipping, not misparsing."""
     n = num_cars(fmt)
     body = len(data) - HEADER.size - 1
     if body <= 0 or body % n:
@@ -102,7 +100,11 @@ def parse_participants(data, fmt):
     n_active = data[HEADER.size]
     out = {}
     for idx in range(min(n, n_active)):
-        team = struct.unpack_from("<H", data, HEADER.size + 1 + idx * size + 5)[0]
+        base = HEADER.size + 1 + idx * size
+        if fmt >= 2026:
+            team = struct.unpack_from("<H", data, base + 5)[0]
+        else:
+            team = data[base + 3]
         if team < 2000:
             out[idx] = team
     return out
@@ -185,16 +187,16 @@ class CarLap:
 
 
 def parse_lap_data(data, fmt):
-    """Return ({car_idx: CarLap}, pb_ghost_idx, rival_idx). Indices 255 = none."""
+    """Return {car_idx: CarLap}. (The packet trailer also names the Time
+    Trial PB/rival ghost car indices, which TRACE no longer reads — see
+    docs/design-notes.md on the removed ghost capture.)"""
     n = num_cars(fmt)
     cars = {}
     for idx in range(n):
         off = HEADER.size + idx * _LAP_CAR.size
         v = _LAP_CAR.unpack_from(data, off)
         cars[idx] = CarLap(v)
-    trailer = HEADER.size + n * _LAP_CAR.size
-    pb_idx, rival_idx = data[trailer], data[trailer + 1]
-    return cars, pb_idx, rival_idx
+    return cars
 
 
 # ---------------------------------------------------------------- telemetry
@@ -259,22 +261,3 @@ def parse_car_telemetry2(data, wanted):
     return out
 
 
-# ---------------------------------------------------------------- time trial
-
-_TT_SET_2026 = struct.Struct("<BHIIIIBBBBBB")  # 25 B
-_TT_SET_2025 = struct.Struct("<BBIIIIBBBBBB")  # 24 B
-
-
-def parse_time_trial(data, fmt):
-    """Return dict of three datasets: session_best, personal_best, rival."""
-    st = _TT_SET_2026 if fmt >= 2026 else _TT_SET_2025
-    out = {}
-    for i, name in enumerate(("session_best", "personal_best", "rival")):
-        v = st.unpack_from(data, HEADER.size + i * st.size)
-        out[name] = {
-            "car_idx": v[0], "team": v[1], "lap_ms": v[2],
-            "s1_ms": v[3], "s2_ms": v[4], "s3_ms": v[5],
-            "tc": v[6], "gearbox": v[7], "abs": v[8],
-            "equal_perf": v[9], "custom_setup": v[10], "valid": v[11],
-        }
-    return out

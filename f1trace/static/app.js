@@ -538,10 +538,11 @@ function prepLap(lap) {
   if (keep.length !== s.d.length) {
     for (const k of Object.keys(s)) s[k] = keep.map((i) => s[k][i]);
   }
-  // ghost speed is derived from lapDistance (the game broadcasts no real
-  // speed for ghosts) and keeps a little quantisation ripple — take it
-  // out for display with a Gaussian pass (sigma 2 frames: measured to
-  // remove every visible zigzag while leaving braking edges intact)
+  // ghost laps captured by pre-0.1.4 recorders carry a speed channel
+  // derived from lapDistance (the game broadcasts no real speed for
+  // ghosts) with a little quantisation ripple — take it out for display
+  // with a Gaussian pass (sigma 2 frames: measured to remove every
+  // visible zigzag while leaving braking edges intact)
   if ((lap.car_role === "pb_ghost" || lap.car_role === "rival") &&
       s.spd.length > 12 && !lap.spdSmoothed) {
     lap.spdSmoothed = true;
@@ -688,8 +689,8 @@ function styleSelect(sel) {
 
 /* ---------------------------------------------------------------- header / status */
 
-/* Demo mode: once the lap list is in, open the driven lap vs the PB ghost
-   so the first thing on screen is a full comparison. */
+/* Demo mode: once the lap list is in, open the driven lap vs the bundled
+   reference lap so the first thing on screen is a full comparison. */
 let demoLoaded = false;
 async function autoloadDemo() {
   if (demoLoaded || state.lapA || !state.laps || !state.laps.length) return;
@@ -698,9 +699,9 @@ async function autoloadDemo() {
     .filter((l) => l.valid && l.lap_time_ms &&
                    (l.car_role === "player") === (role === "player"))
     .sort((a, b) => a.lap_time_ms - b.lap_time_ms)[0];
-  const you = best("player"), ghost = best("ghost");
+  const you = best("player"), ref = best("other");
   if (you) await viewLap(you.id);
-  if (ghost) await toggleRef(ghost.id);
+  if (ref) await toggleRef(ref.id);
 }
 
 let lastLapStamp = "";
@@ -728,22 +729,6 @@ async function pollStatus() {
     if (st.live && st.pps > 0)
       detail += " · lap " + st.live.lap_num + " · " + fmtTime(st.live.lap_time_ms, 1);
     $("status-detail").textContent = detail;
-
-    // ghost telemetry indicator: is a rival/PB ghost broadcasting right now?
-    const gc = $("ghost-chip");
-    if (st.pps > 0 && st.ghosts) {
-      gc.style.display = "";
-      const g = st.ghosts;
-      if (g.rival && g.rival_data) {
-        gc.className = "chip live"; gc.textContent = "RIVAL GHOST ✓";
-      } else if (g.rival) {
-        gc.className = "chip warn"; gc.textContent = "RIVAL: NO TELEMETRY";
-      } else if (g.pb && g.pb_data) {
-        gc.className = "chip live"; gc.textContent = "PB GHOST ✓";
-      } else {
-        gc.className = "chip warn"; gc.textContent = "NO GHOST DATA";
-      }
-    } else gc.style.display = "none";
 
     const stamp = JSON.stringify(st.last_lap);
     if (stamp !== lastLapStamp) {

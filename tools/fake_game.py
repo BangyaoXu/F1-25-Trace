@@ -8,9 +8,11 @@ on the player's lap clock (parking at the line when it finishes first,
 rewinding when the player starts a new lap), its LapData sector fields
 are junk, and its CarTelemetry slot interleaves genuine frames with a
 constant flat-out placeholder (~486 km/h) whose junk speed also leaks
-into Motion's velocity vector — only Motion's position, the lap clock and
-lapDistance are always genuine, which is exactly what the recorder relies
-on. Positions are the laps' real recorded coordinates.
+into Motion's velocity vector. That fabricated stream is why TRACE
+stopped recording ghosts in 0.1.4 (docs/design-notes.md) — the ghost is
+still simulated here so a test run proves the recorder ignores it: only
+the player's laps may come out. Positions are the laps' real recorded
+coordinates.
 
 Usage:  python3 tools/fake_game.py [--speedup 20] [--port 20777]
 """
@@ -100,7 +102,7 @@ def _interp(xs, ys, x):
 
 
 def load_demo_db():
-    """The two bundled Melbourne laps: (player 1:19.782, pb_ghost 1:18.758)."""
+    """The two bundled Melbourne laps: (player 1:19.782, guest 1:18.758)."""
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     con = sqlite3.connect(os.path.join(root, "f1trace", "demo.db"))
     laps = {}
@@ -110,7 +112,8 @@ def load_demo_db():
         cols = json.loads(zlib.decompress(blob))
         laps[role] = Lap(cols, lap_ms, s1 or 0, s2 or 0,
                          json.loads(setup) if setup else None)
-    return laps["player"], laps["pb_ghost"]
+    other = next(laps[r] for r in laps if r != "player")
+    return laps["player"], other
 
 
 # ------------------------------------------------------------ packet builders

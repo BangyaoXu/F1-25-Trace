@@ -29,120 +29,91 @@ quirk handling lives in `recorder.py`, at the point where lap samples
 are assembled. A parser with opinions is much harder to trust when a
 struct layout changes.
 
-The one judgement call inside `packets.py` is `parse_motion` deriving
-`speed_kmh` from the world velocity vector. That is a unit conversion,
-not a rule: `|v| * 3.6` is definitionally the car's speed and has no
-failure mode of its own.
-
 Defensive parsing, where layouts are risky, follows the same spirit —
 degrade instead of guessing: Participants derives record size from
 packet length; Session-packet assists are rejected if any value is out
 of documented range; an unknown `packetFormat` warns once and continues.
 
-## Ghost (shadow car) data quality
+One field is format-dependent in a way length-derivation cannot catch:
+Participants `teamId` is a uint8 at record offset +3 in the 2025 layout
+but a uint16 at +5 in 2026 (driverId and networkId widened). Found the
+hard way on 2026-07-13, when the in-game UDP Format setting had
+reverted to base F1 25 mid-evening: the misread field labelled a
+Mercedes session as Red Bull. The parser now switches the offset on the
+per-packet format field.
 
-The Time Trial ghosts — the PB ghost and a loaded rival — broadcast on
-their own car slots, but not every packet type is trustworthy for them:
+## Ghost capture: tried in 0.1.0–0.1.3, removed in 0.1.4
+
+Early versions also recorded the Time Trial ghosts. The LapData packet
+trailer names the PB-ghost and rival car indices, and a loaded
+leaderboard rival broadcasts on a normal car slot — which promised the
+tool's most interesting comparison: the complete lap of any faster
+driver, no exports needed.
+
+The promise did not survive contact with the data. What live sessions
+showed, channel by channel:
 
 | Source | For ghosts | Notes |
 | --- | --- | --- |
-| Motion position | genuine | trusted |
-| Motion world velocity | **junk in some sessions** | mirrors the CarTelemetry placeholder; genuine in one Melbourne session, junk throughout a Spa session on the same install |
-| LapData `lapDistance`, `currentLapTime` | genuine | drives sampling; updates at half the packet rate (freeze/double-step stutter) |
-| LapData sector fields | **junk** | real sectors come from the TimeTrial packet |
-| CarTelemetry | **interleaved junk** | see below |
-| TimeTrial packet (id 14) | genuine | sectors, assists, equal-performance flag |
+| Motion position | genuine | in every observed session |
+| Motion world velocity | **junk in some sessions** | mirrored the CarTelemetry placeholder throughout a Spa session, genuine in a Melbourne one — same install |
+| LapData `lapDistance`, `currentLapTime` | genuine | updates at half the packet rate (freeze/double-step stutter) |
+| LapData sector fields | **junk** | e.g. sector 1 = 1 ms |
+| CarTelemetry (speed, inputs, gear, RPM) | **interleaved junk** | genuine frames alternating with a constant flat-out placeholder (~486 km/h, gear 8, 100 % throttle; 1 923 of 4 579 samples in one Melbourne lap) — and in the Spa session even the "genuine-looking" frames matched nothing physical |
+| TimeTrial packet (id 14) | genuine | lap + sector times, assist flags |
+| Participants | absent | ghost slots are left out, so ghost laps had no constructor |
 
-### The CarTelemetry placeholder problem
+Two generations of counter-measures tried to save the feature. The
+first vetted CarTelemetry against Motion velocity — and failed, because
+in some sessions both carry the same junk, so the check always passed.
+The second derived ghost speed from the slope of `lapDistance` over the
+lap clock (a quadratic least-squares fit wide enough to iron out the
+update stutter) and held the last "genuine" input frame whenever
+telemetry disagreed with the derived speed by more than 30 km/h. The
+derived speed was solid; the inputs were not. Hold-last masks
+placeholders but cannot recover data the game never sent, and in
+sessions where most frames are junk the resulting throttle/brake traces
+are effectively fiction.
 
-Even with the shadow car enabled and ghost telemetry set to full in the
-game settings, a ghost's CarTelemetry slot interleaves genuine frames
-with a constant flat-out placeholder: **~486 km/h, gear 8, 100 %
-throttle**. In one recorded Melbourne lap, 1 923 of 4 579 samples were
-placeholders. This is game behaviour, not a settings problem, and it
-silently poisons speed (sawtooth trace), gear, and throttle if stored
-as-is.
+That is the reason for removal: **the only ghost channels trustworthy
+in every session were position and times — and the tool's job is
+showing what the faster driver did with the pedals. A reference lap
+with fabricated inputs misleads exactly where the tool is supposed to
+be authoritative.** The cost side sealed it: every entry in the
+recorder's quirk-rule budget was a ghost rule — loop detection
+(clock/distance rewind ⇒ finalize), parked-at-the-line tail trimming,
+interrupted-loop drops, `(role, lap_time_ms)` dedupe, TimeTrial sector
+override, placeholder detection. Removing the capture deleted all of
+them, plus the TimeTrial parser and the derived-speed machinery, and
+the recorder now stores only data it can fully believe — per the
+guiding constraints above.
 
-An earlier version of the fix took ghost speed from Motion's world
-velocity, believing it always genuine. A later Spa session disproved
-that: there, Motion velocity mirrored the exact same junk as
-CarTelemetry on every frame (so the two "independent" sources always
-agreed, and the placeholder detector passed everything). Motion
-velocity for ghosts is session-dependent and must not be trusted.
+What remains:
 
-### The fix, and why it is shaped this way
-
-Two moves, one rule, one threshold
-([recorder.py](../f1trace/recorder.py), sampling loop, ghost branch only):
-
-1. **Ghost speed is derived, never read**: the slope of `lapDistance`
-   over the lap clock — the only two per-ghost channels observed genuine
-   in every session. While recording, a causal ~150 ms backward window;
-   at lap finalize the stored channel is re-derived with a local
-   quadratic least-squares fit over a centred ±300 ms window (a
-   Savitzky-Golay derivative). Quadratic matters: it follows braking's
-   curvature exactly, so the window can be wide enough to iron out
-   lapDistance's update stutter without flattening the corners a linear
-   fit at that width would (measured on a real Spa lap: frame-to-frame
-   ripple >4 km/h dropped from 97 to 7 occurrences vs linear ±200 ms,
-   peak deceleration preserved). The viewer adds a Gaussian pass (sigma
-   2 frames) on ghost speed at display time — measured as the narrowest
-   kernel that removes every visible zigzag (sawtooth sign-flip count 0,
-   the same as real player telemetry) while leaving braking edges
-   intact; the stored channel stays unsmoothed.
-2. **A telemetry frame is trusted only if it agrees with the derived
-   speed**: `abs(telemetry_speed - derived_speed) > 30` km/h marks it as
-   a placeholder, and the remaining channels (throttle, brake, gear,
-   RPM, tyre temps, DRS) hold the last genuine frame instead.
-
-Design considerations, recorded here so they don't get re-litigated:
-
-- **Physics invariant, not signature matching.** The tempting
-  alternative — hard-coding `speed == 486 and gear == 8` — is brittle:
-  if a patch changes the placeholder values it fails silently.
-  "Telemetry that disagrees with the speed implied by real distance
-  covered is not real" holds regardless of what the placeholder looks
-  like.
-- **The reference must not share a failure mode with the signal it
-  vets.** That is exactly how the Motion-velocity version failed:
-  placeholder telemetry was checked against placeholder velocity, and
-  they matched. Distance-over-time cannot echo the placeholder.
-- **The 30 km/h threshold has large margin on both sides.** Even full
-  braking (~5 g) changes speed ~18 km/h per 100 ms, so genuine
-  telemetry skew against the windowed estimate stays low double-digit.
-  The placeholder is wrong by hundreds unless the car were actually
-  near 486 km/h, which it cannot be.
-- **Failure modes are benign.** A false positive (genuine frame flagged)
-  holds throttle/brake for one tick; the speed trace is unaffected
-  because speed never comes from telemetry. A false negative requires
-  junk that happens to match the car's real speed, which is harmless.
-- **Blast radius is zero for player laps.** The whole branch is gated on
-  `idx != self.player_idx`; player telemetry is stored untouched.
+- Ghost laps recorded by older versions keep their `pb_ghost` / `rival`
+  roles, stay viewable, and the viewer still smooths their derived
+  speed channel for display.
+- Faster drivers' laps still get in the honest way: another TRACE user
+  exports a `.trace` file of a lap they actually drove (stored as role
+  `guest`).
+- `tools/fake_game.py` still simulates the shadow car with all its
+  quirks, as a regression test that the recorder ignores it — the pass
+  criterion is that only player laps come out.
 
 ### Rule budget
 
 The recorder deliberately carries very few game-quirk rules, and each
 one must map to a *specific, observed* game behaviour — that is the
-guard against heuristic creep. Current inventory (all gated to ghost
-roles):
+guard against heuristic creep. Since ghost capture left, the inventory
+is a single rule: a **flashback/rewind** drops the samples past the
+rewound position and keeps recording, so the lap stays a single lap
+(the game keeps its own `invalid` flag, which is stored as-is). At its
+peak the table held seven entries, six of them ghost rules — the
+section above records where they went.
 
-| Rule | Observed behaviour it answers |
-| --- | --- |
-| speed derived from lapDistance/lap clock + placeholder hold | CarTelemetry placeholder interleaving; Motion velocity mirroring it in some sessions (above) |
-| loop detection: clock/distance rewind ⇒ finalize lap | ghosts loop at the line without ever incrementing `lap_num`; ghosts never flashback |
-| drop samples past the final lap time | a ghost faster than the player parks at the line while the shared lap clock keeps counting — filler tail |
-| drop loops that end short of the line | a player restart rewinds the ghost mid-lap; a truncated lap would also poison dedupe |
-| `(role, lap_time_ms)` dedupe | the same ghost lap replays every player lap |
-| sectors from the TimeTrial packet | ghost LapData sector fields are junk |
-
-If a rule ever ends up in this file without a concrete behaviour in the
-right column, that is the signal the receiver is getting too clever —
+If a rule ever ends up in this file without a concrete behaviour
+attached, that is the signal the receiver is getting too clever —
 remove or re-verify it.
-
-Player laps have exactly one special rule: a **flashback/rewind** drops
-the samples past the rewound position and keeps recording, so the lap
-stays a single lap (the game keeps its own `invalid` flag, which is
-stored as-is).
 
 ## Storage choices
 
@@ -261,6 +232,4 @@ The corner badges on the track map answer "which corner is costing me"
 - Which code wrote a lap: samples written by current code include an
   `aero` column; older laps don't.
 - Self-diagnostics live in `/api/status`: observed per-packet sizes
-  (catches layout mismatches), tracked-car buffer stats, ghost broadcast
-  flags (`pb_data`/`rival_data`), and `last_drop` — why the most recent
-  ghost lap was rejected.
+  (catches layout mismatches) and live lap-buffer stats.

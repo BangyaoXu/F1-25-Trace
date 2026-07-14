@@ -3,8 +3,8 @@
 TRACE — the **T**elemetry **R**ecording **A**nd **C**omparison **E**ngine — records laps
 driven in **F1 25, the EA / Codemasters racing game**, for the 2026
 Season Pack. The game broadcasts live telemetry on track;
-TRACE captures every completed lap — the player's and the Time Trial
-ghosts' — keeps them across sessions, and replays and compares any two:
+TRACE captures every completed lap you drive, keeps them across
+sessions, and replays and compares any two:
 track map, dashboard, input traces, time delta, and a badge on every
 corner that costs time. The point is to show where a faster lap gains:
 which corners, and whether it's braking or throttle.
@@ -14,9 +14,9 @@ which corners, and whether it's braking or throttle.
 **[Try it in your browser](https://lmc4s.github.io/F1-25-Trace/)** — the two
 bundled demo laps in the full viewer, nothing to install.
 
-![The PB ghost compared against the best recorded lap: speed-colored racing line, green corner badges, telemetry charts and delta trace](docs/img/compare-speed.png)
-*The PB ghost vs the day's best lap: racing line colored by speed, a badge
-on every corner where the PB gains 0.1 s or more, input traces and the
+![Two laps compared: speed-colored racing line, green corner badges, telemetry charts and delta trace](docs/img/compare-speed.png)
+*Two laps compared: racing line colored by speed, a badge on every
+corner where the reference gains 0.1 s or more, input traces and the
 time-delta graph.*
 
 ## Run
@@ -84,8 +84,10 @@ Details:
 | UDP Send Rate | 60 Hz |
 | UDP Format | **F1 25: 2026 Season Pack** (2025 base format also supported) |
 
-Then just drive. Every completed lap is stored automatically — yours **and the
-Time Trial ghosts'**.
+Then just drive. Every lap you complete is stored automatically.
+
+One caveat: game updates have been seen to quietly reset **UDP Format**
+to the base F1 25 value — worth re-checking after a patch.
 
 ### Connection status
 
@@ -99,21 +101,25 @@ is arriving:
 | `OFFLINE` | no recorder — usually another TRACE instance already holds the UDP port |
 
 Load into a session and the chip should flip to `LIVE` within a couple of
-seconds. In Time Trial a second chip shows the ghost situation
-(`RIVAL GHOST ✓` etc. — see below).
+seconds.
 
-## Ghost laps: the PB and any leaderboard entry
+## Ghost laps: why they are no longer recorded
 
-In Time Trial the game broadcasts full telemetry for the ghosts on track,
-and the recorder stores their laps alongside the player's: the
-personal-best ghost as `PB·G`, the rival ghost as `RIVAL`. Load any
-leaderboard entry as the rival — a friend, the top 10, the world record —
-and that driver's complete lap (position, speed, throttle, brake,
-steering) is captured to compare against. No exports or downloads needed.
-
-**Keep the ghost car enabled** — a disabled shadow car is not broadcast at
-all. While driving, the header shows `RIVAL GHOST ✓` when ghost telemetry
-is actually coming in — visible before a session is wasted on it.
+Versions up to 0.1.3 also recorded the Time Trial ghosts — the PB ghost
+and any loaded leaderboard rival. That capture was removed in 0.1.4,
+because the game does not broadcast honest telemetry for the shadow
+car: its throttle, brake, gear and speed interleave genuine frames with
+flat-out placeholder junk, its sector fields are garbage, and which
+channels are affected varies from session to session. The only data
+that proved dependable everywhere was the ghost's position and its lap
+time — not enough to answer the question the tool exists for, namely
+*what the faster driver did with the pedals*. A reference lap whose
+inputs are partly fabricated misleads more than it informs, so TRACE
+now stores only laps with real telemetry: your own, and laps other
+TRACE users share as `.trace` files (see
+[Sharing laps](#sharing-laps)). Ghost laps recorded by older versions
+stay in the database and remain viewable. The full history is in
+[docs/design-notes.md](docs/design-notes.md).
 
 ## Browsing and comparing laps
 
@@ -122,8 +128,9 @@ Everything the recorder has stored is on the web page it serves at
 
 - Pick a **track** in the header dropdown: every lap ever recorded on it,
   from all sessions, in one list (grouped by session). Sort **RECENT** or
-  **FASTEST** (ranked, with gaps), filter YOU / GHOSTS and assists on/off,
-  hide invalid laps.
+  **FASTEST** (ranked, with gaps), filter YOU / GHOSTS (imported laps,
+  plus ghosts recorded by older versions) and assists on/off, hide
+  invalid laps.
 - **SETUP** shows the viewed lap's car setup and assist settings (TC, ABS,
   gearbox, racing line…) — side by side with the reference lap's.
 - Click a lap to replay it: dot on the track map + instrument cluster
@@ -166,7 +173,7 @@ lap and its session info as compressed JSON, tens of kilobytes, small
 enough for any chat. Got a `.trace` file from someone else? Drop it
 anywhere on the TRACE window: their lap appears under its original
 session with a **GUEST** badge, lives in the GHOSTS filter, and compares
-like any local ghost — corner badges, delta graph and all. Re-importing
+like any of your own laps — corner badges, delta graph and all. Re-importing
 a lap that is already in the database is detected and skipped.
 
 ## Track maps
@@ -187,7 +194,7 @@ outlines** for every 2026-calendar track including Madrid
 
 ```
 f1trace/packets.py    packet structs (2025 + 2026 formats, header-switched)
-f1trace/recorder.py   UDP listener, lap segmentation, ghost capture, flashback handling
+f1trace/recorder.py   UDP listener, lap segmentation, flashback handling
 f1trace/db.py         SQLite schema; per-lap compressed column blobs
 f1trace/server.py     JSON API + static viewer
 f1trace/static/       single-page viewer (no build step)
@@ -199,8 +206,8 @@ tools/fake_game.py  synthetic game for end-to-end testing
 - [docs/architecture.md](docs/architecture.md) — how the pieces fit:
   threads, recording pipeline, storage, HTTP API, viewer subsystems.
 - [docs/design-notes.md](docs/design-notes.md) — decisions and the game
-  quirks behind them: ghost telemetry placeholders and the trust table,
-  the recorder's rule budget, per-corner time attribution, color system.
+  quirks behind them: why ghost capture was tried and removed, the
+  recorder's rule budget, per-corner time attribution, color system.
 
 ## License
 

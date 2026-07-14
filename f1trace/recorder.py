@@ -1,13 +1,14 @@
 """UDP listener + lap segmentation.
 
 Runs in its own thread, owns the DB writer connection. Keeps a
-latest-value cache per car for motion/telemetry/status packets and
-snapshots a sample row every time a LapData packet arrives (LapData
-carries the two join keys: currentLapTime and lapDistance).
+latest-value cache for the player's car for motion/telemetry/status
+packets and snapshots a sample row every time a LapData packet arrives
+(LapData carries the two join keys: currentLapTime and lapDistance).
 
-Cars tracked: the player, the personal-best ghost and the rival ghost
-(Time Trial). Ghost laps repeat every lap, so identical ghost laps are
-deduped by (role, lap_time).
+Only the player's car is recorded. Versions before 0.1.4 also captured
+the Time Trial ghosts; the game's shadow-car telemetry turned out to be
+largely fabricated, so that was removed — the history is in
+docs/design-notes.md.
 """
 
 import datetime
@@ -42,10 +43,9 @@ class Recorder(threading.Thread):
         self.status = {
             "listening": False, "udp_port": udp_port, "packets": 0, "pps": 0,
             "packet_format": None, "session": None, "live": None,
-            "last_lap": None, "ghosts": None, "warnings": [],
+            "last_lap": None, "warnings": [],
             "packet_sizes": {},   # pid -> observed byte size (layout probe)
             "cars": {},           # tracked car idx -> live buffer stats
-            "last_drop": None,    # why the last non-player lap was not stored
         }
         self._status_lock = threading.Lock()
         self._reset_session_state(None)
@@ -58,8 +58,6 @@ class Recorder(threading.Thread):
         self.session_info = None
         self.track_length = 0
         self.player_idx = None
-        self.pb_idx = 255
-        self.rival_idx = 255
         self.bufs = {}          # car_idx -> LapBuffer
         self.motion = {}        # car_idx -> (x, y, z, glat, glong)
         self.telem = {}         # car_idx -> dict
@@ -68,9 +66,6 @@ class Recorder(threading.Thread):
         self.setups = {}        # car_idx -> setup dict
         self.teams = {}         # car_idx -> team id
         self.sess_assists = None   # player assist settings (Session packet)
-        self.tt = None             # TimeTrial packet datasets
-        self.stored_ghost_times = set()  # (role, lap_time_ms) dedupe
-        self.good_telem = {}       # car_idx -> last genuine telemetry frame
 
     def _set_status(self, **kw):
         with self._status_lock:
@@ -163,21 +158,12 @@ class Recorder(threading.Thread):
             self.setups.update(packets.parse_car_setups(data, fmt, self._wanted()))
         elif pid == packets.PARTICIPANTS:
             self.teams.update(packets.parse_participants(data, fmt))
-        elif pid == packets.TIME_TRIAL:
-            self.tt = packets.parse_time_trial(data, fmt)
         elif pid == packets.SESSION:
             self.sess_assists = packets.parse_session_assists(data)
             self._on_session(data, h)
 
     def _wanted(self):
-        w = set()
-        if self.player_idx is not None:
-            w.add(self.player_idx)
-        if self.pb_idx != 255:
-            w.add(self.pb_idx)
-        if self.rival_idx != 255:
-            w.add(self.rival_idx)
-        return w
+        return set() if self.player_idx is None else {self.player_idx}
 
     # ---------------------------------------------------------- session
 
@@ -209,201 +195,110 @@ class Recorder(threading.Thread):
     # ---------------------------------------------------------- lap data
 
     def _on_lap_data(self, data, fmt):
-        cars, pb_idx, rival_idx = packets.parse_lap_data(data, fmt)
-        self.pb_idx, self.rival_idx = pb_idx, rival_idx
-        self._set_status(ghosts={
-            "pb": pb_idx != 255,
-            "pb_data": pb_idx in self.telem,
-            "rival": rival_idx != 255,
-            "rival_data": rival_idx in self.telem,
-        })
+        cars = packets.parse_lap_data(data, fmt)
+        idx = self.player_idx
+        cl = cars.get(idx) if idx is not None else None
+        if cl is None:
+            return
 
-        for idx in self._wanted():
-            cl = cars.get(idx)
-            if cl is None:
-                continue
-            buf = self.bufs.get(idx)
-            if buf is None:
-                buf = self.bufs[idx] = LapBuffer(cl.lap_num)
-            if cl.lap_num != buf.lap_num:
-                self._finalize(idx, buf,
-                               cl.last_lap_ms if cl.lap_num == buf.lap_num + 1 else 0)
-                buf = self.bufs[idx] = LapBuffer(cl.lap_num)
+        buf = self.bufs.get(idx)
+        if buf is None:
+            buf = self.bufs[idx] = LapBuffer(cl.lap_num)
+        if cl.lap_num != buf.lap_num:
+            self._finalize(idx, buf,
+                           cl.last_lap_ms if cl.lap_num == buf.lap_num + 1 else 0)
+            buf = self.bufs[idx] = LapBuffer(cl.lap_num)
 
-            if cl.lap_distance < 0 or cl.current_lap_ms <= 0:
-                continue
+        if cl.lap_distance < 0 or cl.current_lap_ms <= 0:
+            return
 
-            samples = buf.samples
-            if samples:
-                last = samples[-1]
-                if cl.current_lap_ms == last[0]:
-                    continue  # duplicate frame
-                if cl.current_lap_ms < last[0] or cl.lap_distance < last[1] - 1.0:
-                    if idx != self.player_idx:
-                        # ghosts don't flashback: any clock or distance
-                        # rewind is the ghost restarting its loop at the
-                        # line (lap_num never increments; a ghost faster
-                        # than the player parks at the line first, so its
-                        # clock wraps while distance is still at the line)
-                        self._finalize(idx, buf,
-                                       cl.last_lap_ms or samples[-1][0])
-                        buf = self.bufs[idx] = LapBuffer(cl.lap_num)
-                        samples = buf.samples
-                    else:
-                        # flashback / rewind / reset: drop samples past the
-                        # new position
-                        while samples and samples[-1][1] >= cl.lap_distance:
-                            samples.pop()
+        samples = buf.samples
+        if samples:
+            last = samples[-1]
+            if cl.current_lap_ms == last[0]:
+                return  # duplicate frame
+            if cl.current_lap_ms < last[0] or cl.lap_distance < last[1] - 1.0:
+                # flashback / rewind / reset: drop samples past the
+                # new position
+                while samples and samples[-1][1] >= cl.lap_distance:
+                    samples.pop()
 
-            if cl.invalid:
-                buf.invalid = True
-            if cl.s1_ms:
-                buf.s1_ms = cl.s1_ms
-            if cl.s2_ms:
-                buf.s2_ms = cl.s2_ms
+        if cl.invalid:
+            buf.invalid = True
+        if cl.s1_ms:
+            buf.s1_ms = cl.s1_ms
+        if cl.s2_ms:
+            buf.s2_ms = cl.s2_ms
 
-            m = self.motion.get(idx)
-            if m is None:
-                continue  # wait for the first motion packet for this car
-            t = self.telem.get(idx) or {}
-            spd = t.get("speed", 0)
-            if idx != self.player_idx:
-                # every direct speed the game sends for the shadow car
-                # lies: CarTelemetry interleaves a flat-out placeholder
-                # (~486 km/h, gear 8) and Motion's velocity vector carries
-                # the same junk — only its position is real. The lap clock
-                # and lapDistance are the dependable channels, so ghost
-                # speed is the slope of distance over time; telemetry
-                # frames that disagree with it are placeholders — fall
-                # back to the last genuine frame
-                est = _dist_speed(samples, cl.current_lap_ms,
-                                  cl.lap_distance)
-                if t and abs(t.get("speed", 0) - est) > 30:
-                    t = self.good_telem.get(idx) or {}
-                elif t:
-                    self.good_telem[idx] = t
-                spd = int(round(est))
-            st = self.car_status.get(idx) or {}
-            t2 = self.telem2.get(idx) or {}
-            tt = t.get("tyre_temp") or (0, 0, 0, 0)
-            samples.append((
-                cl.current_lap_ms,
-                round(cl.lap_distance, 1),
-                round(m[0], 2), round(m[1], 2), round(m[2], 2),
-                spd,
-                int(round((t.get("throttle") or 0.0) * 100)),
-                int(round((t.get("brake") or 0.0) * 100)),
-                int(round((t.get("steer") or 0.0) * 100)),
-                t.get("gear", 0),
-                1 if t.get("drs") else 0,
-                1 if t2.get("overtake") else 0,
-                t.get("rpm", 0),
-                tt[2], tt[3], tt[0], tt[1],  # order RL,RR,FL,FR on wire; store FL,FR,RL,RR
-                round(st.get("fuel", 0.0), 2),
-                round((st.get("ers_store") or 0.0) / 1e6, 3),
-                1 if t2.get("aero_mode") else 0,  # 2026: X-mode(1)/Z-mode(0)
-            ))
+        m = self.motion.get(idx)
+        if m is None:
+            return  # wait for the first motion packet
+        t = self.telem.get(idx) or {}
+        st = self.car_status.get(idx) or {}
+        t2 = self.telem2.get(idx) or {}
+        tt = t.get("tyre_temp") or (0, 0, 0, 0)
+        samples.append((
+            cl.current_lap_ms,
+            round(cl.lap_distance, 1),
+            round(m[0], 2), round(m[1], 2), round(m[2], 2),
+            t.get("speed", 0),
+            int(round((t.get("throttle") or 0.0) * 100)),
+            int(round((t.get("brake") or 0.0) * 100)),
+            int(round((t.get("steer") or 0.0) * 100)),
+            t.get("gear", 0),
+            1 if t.get("drs") else 0,
+            1 if t2.get("overtake") else 0,
+            t.get("rpm", 0),
+            tt[2], tt[3], tt[0], tt[1],  # order RL,RR,FL,FR on wire; store FL,FR,RL,RR
+            round(st.get("fuel", 0.0), 2),
+            round((st.get("ers_store") or 0.0) / 1e6, 3),
+            1 if t2.get("aero_mode") else 0,  # 2026: X-mode(1)/Z-mode(0)
+        ))
 
-            if idx == self.player_idx:
-                self._set_status(live={
-                    "lap_num": cl.lap_num,
-                    "lap_time_ms": cl.current_lap_ms,
-                    "distance": int(cl.lap_distance),
-                    "speed": t.get("speed", 0),
-                })
-
-        cars = {str(i): {"role": self._role(i), "lap_num": b.lap_num,
-                         "samples": len(b.samples)}
-                for i, b in self.bufs.items()}
-        self._set_status(cars=cars)
+        self._set_status(
+            live={
+                "lap_num": cl.lap_num,
+                "lap_time_ms": cl.current_lap_ms,
+                "distance": int(cl.lap_distance),
+                "speed": t.get("speed", 0),
+            },
+            cars={str(i): {"role": "player", "lap_num": b.lap_num,
+                           "samples": len(b.samples)}
+                  for i, b in self.bufs.items()})
 
     COLUMNS = ("t", "d", "x", "y", "z", "spd", "thr", "brk", "str",
                "gear", "drs", "ot", "rpm", "tfl", "tfr", "trl", "trr",
                "fuel", "ers", "aero")
 
-    def _role(self, idx):
-        if idx == self.player_idx:
-            return "player"
-        if idx == self.pb_idx:
-            return "pb_ghost"
-        if idx == self.rival_idx:
-            return "rival"
-        return "car%d" % idx
-
-    def _assists_for(self, idx, role, st):
-        """Assist settings for a finishing lap, best source per role:
-        per-car TC/ABS from CarStatus; the player adds the Session-packet
-        settings; ghosts add the TimeTrial-packet dataset."""
+    def _assists_for(self, st):
+        """Assist settings for a finishing lap: per-car TC/ABS from
+        CarStatus plus the Session-packet settings."""
         a = {}
         if "tc" in st:
             a["tc"] = st["tc"]
             a["abs"] = st["abs"]
-        if role == "player" and self.sess_assists:
+        if self.sess_assists:
             a.update(self.sess_assists)
-        elif self.tt:
-            ds = self.tt.get("rival" if role == "rival" else "personal_best")
-            if ds and ds.get("car_idx") == idx:
-                a["tc"] = ds["tc"]
-                a["abs"] = ds["abs"]
-                a["gearbox"] = ds["gearbox"]
-                a["custom_setup"] = ds["custom_setup"]
-                a["equal_perf"] = ds["equal_perf"]
         return a
 
     def _finalize(self, idx, buf, lap_time_ms):
         samples = buf.samples
-        role = self._role(idx)
-
-        def drop(reason):
-            if role != "player":   # player laps drop for the same reasons, but
-                span = samples[-1][1] - samples[0][1] if samples else 0
-                info = {"role": role, "car": idx, "lap_num": buf.lap_num,
-                        "reason": reason, "lap_time_ms": lap_time_ms,
-                        "samples": len(samples), "span_m": int(span)}
-                self._set_status(last_drop=info)
-                print("[f1trace] dropped %s lap: %s" % (role, info))
-
         if lap_time_ms <= 0:
-            return drop("no lap time (lap counter jumped or time missing)")
-        # a ghost that finishes before the player parks at the line while
-        # the shared lap clock keeps counting — drop that filler tail
-        while samples and samples[-1][0] > lap_time_ms:
-            samples.pop()
+            return  # lap counter jumped or time missing
         if len(samples) < 50:
-            return drop("too few samples")
+            return
         if self.session_row_id is None:
-            return drop("no session row yet")
+            return
         span = samples[-1][1] - samples[0][1]
         if self.track_length and span < 0.9 * self.track_length:
-            return drop("partial lap (%dm of %dm)" % (span, self.track_length))
-
-        if role != "player":
-            # a player restart rewinds the ghost mid-lap; storing that
-            # truncated lap would also poison the (role, time) dedupe
-            if (self.track_length and
-                    samples[-1][1] < self.track_length - 50):
-                return drop("ghost loop interrupted before the line")
-            key = (role, lap_time_ms)
-            if key in self.stored_ghost_times:
-                return  # same ghost lap repeating; already stored
-            self.stored_ghost_times.add(key)
+            return  # partial lap
 
         s1, s2 = buf.s1_ms, buf.s2_ms
-        if role != "player" and self.tt:
-            # the ghost's LapData sector fields are junk; the TimeTrial
-            # packet carries the ghost lap's real sector times
-            ds = self.tt.get("rival" if role == "rival" else "personal_best")
-            if ds and ds.get("car_idx") == idx and ds.get("s1_ms"):
-                s1, s2 = ds["s1_ms"], ds["s2_ms"]
         s3 = lap_time_ms - s1 - s2 if s1 and s2 else 0
         cols = {name: [s[i] for s in samples]
                 for i, name in enumerate(self.COLUMNS)}
-        if role != "player":
-            # the per-frame estimate is causal (backward-looking); re-derive
-            # the stored channel with a centred window so it is smooth
-            cols["spd"] = _lsq_speed(cols["t"], cols["d"])
         st = self.car_status.get(idx) or {}
-        assists = self._assists_for(idx, role, st)
+        assists = self._assists_for(st)
         setup = self.setups.get(idx)
         self.con.execute(
             "INSERT INTO laps (session_id, car_role, car_index, lap_num,"
@@ -411,7 +306,7 @@ class Recorder(threading.Thread):
             " top_speed, n_samples, created_at, samples, setup, assists,"
             " team_id)"
             " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-            (self.session_row_id, role, idx, buf.lap_num, lap_time_ms,
+            (self.session_row_id, "player", idx, buf.lap_num, lap_time_ms,
              s1, s2, s3, 0 if buf.invalid else 1,
              st.get("tyre_visual"), max(cols["spd"]) if cols["spd"] else 0,
              len(samples), _now(), db.pack_samples(cols),
@@ -419,63 +314,13 @@ class Recorder(threading.Thread):
              json.dumps(assists) if assists else None,
              self.teams.get(idx)))
         self.con.commit()
-        print("[f1trace] stored %s lap %d — %s%s" % (
-            role, buf.lap_num, _fmt_time(lap_time_ms),
+        print("[f1trace] stored lap %d — %s%s" % (
+            buf.lap_num, _fmt_time(lap_time_ms),
             "" if not buf.invalid else " (invalid)"))
         self._set_status(last_lap={
-            "role": role, "lap_num": buf.lap_num,
+            "role": "player", "lap_num": buf.lap_num,
             "lap_time_ms": lap_time_ms, "valid": not buf.invalid,
         })
-
-
-def _dist_speed(samples, t_ms, dist):
-    """Ghost speed in km/h: slope of lapDistance over the lap clock,
-    taken across the last ~150 ms of samples."""
-    if not samples:
-        return 0.0
-    ref = samples[max(0, len(samples) - 9)]
-    dt = t_ms - ref[0]
-    if dt <= 0:
-        return 0.0
-    return max(0.0, (dist - ref[1]) / dt * 3600.0)
-
-
-def _lsq_speed(ts, ds, half_ms=300):
-    """Ghost speed channel for storage: local quadratic least-squares fit
-    of lapDistance over the lap clock, evaluated as the slope at the centre
-    of a ±300 ms window (a Savitzky-Golay derivative). Quadratic follows
-    braking's curvature exactly, so the window can be wide enough to iron
-    out lapDistance's update stutter (it freezes and double-steps at half
-    the packet rate) without flattening the corners a linear fit would."""
-    out = []
-    n = len(ts)
-    a = b = 0
-    for i in range(n):
-        while a < i and ts[i] - ts[a] > half_ms:
-            a += 1
-        if b < i + 1:
-            b = i + 1
-        while b < n and ts[b] - ts[i] <= half_ms:
-            b += 1
-        tw = [x - ts[i] for x in ts[a:b]]
-        dw = ds[a:b]
-        s0 = len(tw)
-        s1 = sum(tw)
-        s2 = sum(x * x for x in tw)
-        s3 = sum(x ** 3 for x in tw)
-        s4 = sum(x ** 4 for x in tw)
-        r0 = sum(dw)
-        r1 = sum(x * y for x, y in zip(tw, dw))
-        r2 = sum(x * x * y for x, y in zip(tw, dw))
-        det = (s0 * (s2 * s4 - s3 * s3) - s1 * (s1 * s4 - s2 * s3)
-               + s2 * (s1 * s3 - s2 * s2))
-        if abs(det) < 1e-9:
-            out.append(out[-1] if out else 0)
-            continue
-        slope = (r0 * (s3 * s2 - s1 * s4) + r1 * (s0 * s4 - s2 * s2)
-                 + r2 * (s1 * s2 - s0 * s3)) / det
-        out.append(max(0, int(round(slope * 3600.0))))
-    return out
 
 
 def _fmt_time(ms):
