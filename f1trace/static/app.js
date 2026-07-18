@@ -1333,12 +1333,15 @@ function resetZoom() {
 $("zoom-reset").addEventListener("click", resetZoom);
 map.addEventListener("dblclick", resetZoom);
 
-map.addEventListener("wheel", (e) => {
-  if (!view || !state.lapA) return;
-  e.preventDefault();
+/* Trackpad pinch arrives as ctrl+wheel with small deltas (Chrome,
+   Firefox, Edge), so it needs a higher sensitivity than a real wheel. */
+function wheelZoomFactor(e) {
+  return Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.0015));
+}
+
+function mapZoomAt(clientX, clientY, f) {
   const r = map.getBoundingClientRect();
-  const px = (e.clientX - r.left) * view.dpr, py = (e.clientY - r.top) * view.dpr;
-  const f = Math.exp(-e.deltaY * 0.0015);
+  const px = (clientX - r.left) * view.dpr, py = (clientY - r.top) * view.dpr;
   const k = Math.min(40, Math.max(1, (view.scale / view.baseScale) * f));
   const scale = view.baseScale * k;
   // keep the world point under the cursor fixed
@@ -1346,7 +1349,30 @@ map.addEventListener("wheel", (e) => {
   view.oy = py + Y2W(py) * scale;
   view.scale = scale;
   afterZoomGesture();
+}
+
+map.addEventListener("wheel", (e) => {
+  if (!view || !state.lapA) return;
+  e.preventDefault();
+  mapZoomAt(e.clientX, e.clientY, wheelZoomFactor(e));
 }, { passive: false });
+
+/* Safari reports trackpad pinch as gesture events, not ctrl+wheel. */
+function onPinch(el, zoomAt) {
+  let last = 1;
+  el.addEventListener("gesturestart", (e) => {
+    e.preventDefault();
+    last = e.scale;
+  });
+  el.addEventListener("gesturechange", (e) => {
+    e.preventDefault();
+    if (!view || !state.lapA) return;
+    zoomAt(e.clientX, e.clientY, e.scale / last);
+    last = e.scale;
+  });
+  el.addEventListener("gestureend", (e) => e.preventDefault());
+}
+onPinch(map, mapZoomAt);
 
 {
   let downX = 0, downY = 0, panning = false, dragged = false;
@@ -1652,25 +1678,28 @@ function chartSeek(e, cv) {
 }
 /* Wheel on a chart = the same map zoom, anchored at the track point under
    the cursor's lap distance; state.viewD then brings the charts along. */
-function chartWheel(e, cv) {
-  if (!view || !state.lapA) return;
-  e.preventDefault();
+function chartZoomAt(cv, clientX, f) {
   const cache = chartCache[cv.id];
   if (!cache) return;
   const r = cv.getBoundingClientRect();
-  const frac = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width));
+  const frac = Math.min(1, Math.max(0, (clientX - r.left) / r.width));
   const s = state.lapA.samples;
   const d = Math.min(cache.d0 + frac * (cache.d1 - cache.d0), state.lapA.maxD);
   // keep that point's map pixel fixed while the scale changes, exactly
   // like the map's own wheel handler does with the point under the cursor
   const px = W2X(interp(s.d, s.x, d)), py = W2Y(interp(s.d, s.z, d));
-  const f = Math.exp(-e.deltaY * 0.0015);
   const k = Math.min(40, Math.max(1, (view.scale / view.baseScale) * f));
   const scale = view.baseScale * k;
   view.ox = px - X2W(px) * scale;
   view.oy = py + Y2W(py) * scale;
   view.scale = scale;
   afterZoomGesture();
+}
+
+function chartWheel(e, cv) {
+  if (!view || !state.lapA) return;
+  e.preventDefault();
+  chartZoomAt(cv, e.clientX, wheelZoomFactor(e));
 }
 
 for (const id of ["ch-speed", "ch-thr", "ch-brk", "ch-steer", "ch-delta"]) {
@@ -1680,6 +1709,7 @@ for (const id of ["ch-speed", "ch-thr", "ch-brk", "ch-steer", "ch-delta"]) {
   window.addEventListener("mousemove", (e) => { if (dragging) chartSeek(e, cv); });
   window.addEventListener("mouseup", () => { dragging = false; });
   cv.addEventListener("wheel", (e) => chartWheel(e, cv), { passive: false });
+  onPinch(cv, (x, _y, f) => chartZoomAt(cv, x, f));
 }
 
 /* ---------------------------------------------------------------- scene & playback */
